@@ -1,0 +1,61 @@
+# --- Seguridad & Credenciales ---
+# Archivos de entorno y variables secretas
+.env
+.env.local
+.env.*.local
+*.env
+*.pem
+*.key
+certs/
+
+# --- Configuración Específica del Usuario ---
+# No subir rutas locales ni preferencias de la máquina del usuario
+config.json
+
+# --- Dependencias (Node.js) ---
+# IMPORTANTE: Mantener package-lock.json fuera del gitignore es vital 
+# para garantizar builds reproducibles y seguridad contra ataques de cadena de suministro.
+node_modules/
+
+# --- Compilados & Bundles ---
+# El bundle compilado por esbuild se genera automáticamente
+src/renderer.bundle.js
+dist/
+out/
+build/
+*.exe
+*.dmg
+*.app
+*.deb
+*.rpm
+
+# --- Logs y Caché ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+.eslintcache
+.parcel-cache
+.cache/
+
+# --- Sistema Operativo ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- Editores e IDEs ---
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# --- Propuestas y documentación privada ---
+propuestas*.md
+docs/propuestas*.md
