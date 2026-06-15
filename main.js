@@ -503,6 +503,67 @@ ipcMain.handle('get-vault-tags', async () => {
   return tagMap;
 });
 
+// Helper to recursively scan backlinks pointing to a note
+function scanBacklinksRecursively(dirPath, targetNoteName, targetFilePath, backlinks = []) {
+  try {
+    if (!fs.existsSync(dirPath)) return backlinks;
+    const files = fs.readdirSync(dirPath);
+    for (const file of files) {
+      if (file.startsWith('.')) continue;
+      const fullPath = path.join(dirPath, file);
+      const stats = fs.statSync(fullPath);
+      if (stats.isDirectory()) {
+        scanBacklinksRecursively(fullPath, targetNoteName, targetFilePath, backlinks);
+      } else if (stats.isFile() && (file.toLowerCase().endsWith('.md') || file.toLowerCase().endsWith('.txt'))) {
+        // Skip the target note itself to prevent self-linking
+        if (fullPath.toLowerCase() === targetFilePath.toLowerCase()) {
+          continue;
+        }
+        
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const lines = content.split(/\r?\n/);
+        const contexts = [];
+        let fileHasLink = false;
+        
+        // Find wikilinks like [[Note Name]] or [[Note Name|Label]]
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const regex = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
+          let match;
+          while ((match = regex.exec(line)) !== null) {
+            const linkedNoteName = match[1].trim().toLowerCase();
+            if (linkedNoteName === targetNoteName) {
+              fileHasLink = true;
+              contexts.push({
+                line: i + 1,
+                text: line.trim()
+              });
+            }
+          }
+        }
+        
+        if (fileHasLink) {
+          backlinks.push({
+            name: file,
+            path: fullPath,
+            contexts: contexts
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error scanning backlinks in:', dirPath, err);
+  }
+  return backlinks;
+}
 
-
-
+ipcMain.handle('get-backlinks', async (event, filePath) => {
+  if (!filePath) return [];
+  if (!filePath.startsWith(vaultPath)) {
+    throw new Error('Access denied: path is outside the vault.');
+  }
+  const ext = path.extname(filePath);
+  const targetNoteName = path.basename(filePath, ext).trim().toLowerCase();
+  
+  return scanBacklinksRecursively(vaultPath, targetNoteName, filePath);
+});

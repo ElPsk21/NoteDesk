@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', (event, data) => callback(data)),
   openVaultDialog: () => ipcRenderer.invoke('open-vault-dialog'),
   getVaultTags: () => ipcRenderer.invoke('get-vault-tags'),
+  getBacklinks: (filePath) => ipcRenderer.invoke('get-backlinks', filePath),
 });
 
 

@@ -15,8 +15,10 @@ let editorView = null; // CodeMirror EditorView instance
 // --- Section 3 Application State ---
 let openTabs = []; // Array of { path, name }
 let activeTabPath = null;
-let rightSidebarTab = 'outline'; // 'outline' or 'tags'
+let rightSidebarTab = 'outline'; // 'outline', 'tags', or 'backlinks'
 let collapsedTags = new Set(); // Set of collapsed tag strings
+let collapsedBacklinks = new Set(); // Set of collapsed backlink paths
+let splitPercentage = 50; // Current percentage width of the editor container in split view
 
 let lastLeftWidth = 260;
 let lastRightWidth = 250;
@@ -97,6 +99,8 @@ const el = {
   codemirrorHost: document.getElementById('codemirror-host'),
   markdownPreview: document.getElementById('markdown-preview'),
   paneContent: document.getElementById('pane-content'),
+  editorContainer: document.getElementById('editor-container'),
+  splitDivider: document.getElementById('split-divider'),
   statusVaultPath: document.getElementById('status-vault-path'),
   statusWordCount: document.getElementById('status-word-count'),
   statusCharCount: document.getElementById('status-char-count'),
@@ -114,8 +118,10 @@ const el = {
   btnOpenVault: document.getElementById('btn-open-vault'),
   btnTabOutline: document.getElementById('btn-tab-outline'),
   btnTabTags: document.getElementById('btn-tab-tags'),
+  btnTabBacklinks: document.getElementById('btn-tab-backlinks'),
   outlineView: document.getElementById('outline-view'),
   tagsView: document.getElementById('tags-view'),
+  backlinksView: document.getElementById('backlinks-view'),
   
   // Modals
   modalContainer: document.getElementById('modal-container'),
@@ -511,6 +517,10 @@ async function openNote(filePath) {
     if (rightSidebarTab === 'tags') {
       updateTagsView();
     }
+    // Refresh backlinks view if active
+    if (rightSidebarTab === 'backlinks') {
+      updateBacklinksView();
+    }
   } catch (err) {
     console.error('Error al abrir la nota:', err);
     showNotification('No se pudo abrir la nota seleccionada.', 'error');
@@ -536,6 +546,10 @@ async function saveCurrentNoteImmediately() {
     // Refresh tags if they changed
     if (rightSidebarTab === 'tags') {
       updateTagsView();
+    }
+    // Refresh backlinks if they changed
+    if (rightSidebarTab === 'backlinks') {
+      updateBacklinksView();
     }
   } catch (err) {
     console.error('Error al guardar:', err);
@@ -570,6 +584,7 @@ function renderTabs() {
     activeTabPath = null;
     currentFilePath = null;
     updateOutline('');
+    updateBacklinksView();
     return;
   }
 
@@ -641,6 +656,9 @@ async function switchTab(filePath) {
     
     if (rightSidebarTab === 'tags') {
       updateTagsView();
+    }
+    if (rightSidebarTab === 'backlinks') {
+      updateBacklinksView();
     }
   } catch (err) {
     console.error('Error switching tab:', err);
@@ -783,6 +801,152 @@ async function updateTagsView() {
     el.tagsView.innerHTML = '<div class="empty-sidebar-view">Error al cargar etiquetas.</div>';
   }
 }
+
+// Helper to escape RegExp special characters
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Open note and scroll to a specific line number
+async function openNoteAndScroll(filePath, lineNum) {
+  await openNote(filePath);
+  if (lineNum) {
+    setTimeout(() => {
+      scrollToLine(editorView, lineNum);
+    }, 50);
+  }
+}
+
+// --- Section 3 Backlinks Explorer Logic ---
+async function updateBacklinksView() {
+  el.backlinksView.innerHTML = '';
+  
+  if (!activeTabPath) {
+    el.backlinksView.innerHTML = '<div class="empty-sidebar-view">Abre una nota para ver sus backlinks.</div>';
+    return;
+  }
+
+  try {
+    el.backlinksView.innerHTML = '<div class="empty-sidebar-view">Buscando backlinks...</div>';
+    const backlinks = await window.api.getBacklinks(activeTabPath);
+    el.backlinksView.innerHTML = '';
+
+    if (backlinks.length === 0) {
+      el.backlinksView.innerHTML = '<div class="empty-sidebar-view">No hay backlinks para esta nota.</div>';
+      return;
+    }
+
+    // Get current note name for highlighting wikilinks inside context
+    const parts = activeTabPath.split(/[\\/]/);
+    const targetNoteName = parts[parts.length - 1].replace(/\.md$/, '').replace(/\.txt$/, '').trim();
+
+    backlinks.forEach(link => {
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'backlink-group';
+
+      const headerDiv = document.createElement('div');
+      headerDiv.className = 'backlink-header';
+      
+      const titleWrapper = document.createElement('div');
+      titleWrapper.className = 'backlink-title-wrapper';
+
+      const isCollapsed = collapsedBacklinks.has(link.path);
+
+      // Chevron Icon
+      const chevronSpan = document.createElement('span');
+      chevronSpan.className = `backlink-icon ${isCollapsed ? 'collapsed' : ''}`;
+      chevronSpan.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 12px; height: 12px;">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      `;
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'backlink-title';
+      titleSpan.textContent = link.name.replace(/\.md$/, '');
+      titleSpan.title = link.name;
+
+      titleWrapper.appendChild(chevronSpan);
+      titleWrapper.appendChild(titleSpan);
+
+      const countSpan = document.createElement('span');
+      countSpan.className = 'backlink-count';
+      countSpan.textContent = link.contexts.length;
+
+      headerDiv.appendChild(titleWrapper);
+      headerDiv.appendChild(countSpan);
+
+      const contextsDiv = document.createElement('div');
+      contextsDiv.className = 'backlink-contexts';
+      if (isCollapsed) {
+        contextsDiv.classList.add('collapsed');
+      }
+
+      chevronSpan.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const collapsed = contextsDiv.classList.toggle('collapsed');
+        chevronSpan.classList.toggle('collapsed', collapsed);
+        if (collapsed) {
+          collapsedBacklinks.add(link.path);
+        } else {
+          collapsedBacklinks.delete(link.path);
+        }
+      });
+      
+      headerDiv.addEventListener('click', (e) => {
+        if (e.target.closest('.backlink-title')) {
+          openNote(link.path);
+        } else {
+          const collapsed = contextsDiv.classList.toggle('collapsed');
+          chevronSpan.classList.toggle('collapsed', collapsed);
+          if (collapsed) {
+            collapsedBacklinks.add(link.path);
+          } else {
+            collapsedBacklinks.delete(link.path);
+          }
+        }
+      });
+
+      // Render context items
+      link.contexts.forEach(ctx => {
+        const ctxItem = document.createElement('div');
+        ctxItem.className = 'backlink-context-item';
+        
+        // Highlight current note wikilink references in the context text
+        const escapedName = escapeRegExp(targetNoteName);
+        const highlightRegex = new RegExp(`(\\[\\[${escapedName}(?:\\|[^\\]]*)?\\]\\])`, 'gi');
+        
+        // Convert HTML tags to entities
+        const safeText = ctx.text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+
+        const highlightedText = safeText.replace(highlightRegex, '<mark>$1</mark>');
+        
+        ctxItem.innerHTML = `<span style="opacity: 0.5; margin-right: 4px;">L${ctx.line}:</span> ${highlightedText}`;
+        ctxItem.title = `Línea ${ctx.line}: ${ctx.text}`;
+        
+        ctxItem.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openNoteAndScroll(link.path, ctx.line);
+        });
+        
+        contextsDiv.appendChild(ctxItem);
+      });
+
+      groupDiv.appendChild(headerDiv);
+      groupDiv.appendChild(contextsDiv);
+      el.backlinksView.appendChild(groupDiv);
+    });
+  } catch (err) {
+    console.error('Error updating backlinks view:', err);
+    el.backlinksView.innerHTML = '<div class="empty-sidebar-view">Error al buscar backlinks.</div>';
+  }
+}
+
 
 // Helper to nest headings hierarchically for Logseq-like outline styling in the preview
 function nestHeadings(htmlString) {
@@ -1058,6 +1222,9 @@ async function handleRenameNode(itemPath, currentName) {
     if (rightSidebarTab === 'tags') {
       updateTagsView();
     }
+    if (rightSidebarTab === 'backlinks') {
+      updateBacklinksView();
+    }
   } catch (err) {
     console.error(err);
     showNotification(err.message, 'error');
@@ -1102,6 +1269,9 @@ async function handleDeleteNode(itemPath, itemName) {
     if (rightSidebarTab === 'tags') {
       updateTagsView();
     }
+    if (rightSidebarTab === 'backlinks') {
+      updateBacklinksView();
+    }
     if (openTabs.length === 0) {
       ensureLeftSidebarExpanded();
     }
@@ -1122,6 +1292,15 @@ function setViewMode(mode) {
   
   // Update wrapper pane view styling
   el.paneContent.className = `pane-content mode-${mode}`;
+  
+  // Apply the custom split width if in split view, otherwise reset inline styles
+  if (mode === 'split') {
+    el.editorContainer.style.flex = 'none';
+    el.editorContainer.style.width = `${splitPercentage}%`;
+  } else {
+    el.editorContainer.style.flex = '';
+    el.editorContainer.style.width = '';
+  }
   
   // If moving into a mode with preview, update it immediately
   if (mode === 'preview' || mode === 'split') {
@@ -1236,6 +1415,9 @@ function setupEventListeners() {
     if (rightSidebarTab === 'tags') {
       updateTagsView();
     }
+    if (rightSidebarTab === 'backlinks') {
+      updateBacklinksView();
+    }
   });
   el.btnWelcomeNewFile.addEventListener('click', () => handleCreateNote());
 
@@ -1258,6 +1440,9 @@ function setupEventListeners() {
         if (rightSidebarTab === 'tags') {
           updateTagsView();
         }
+        if (rightSidebarTab === 'backlinks') {
+          updateBacklinksView();
+        }
         ensureLeftSidebarExpanded();
         showNotification('Nueva bóveda abierta correctamente.', 'success');
       }
@@ -1271,8 +1456,10 @@ function setupEventListeners() {
   el.btnTabOutline.addEventListener('click', () => {
     el.btnTabOutline.classList.add('active');
     el.btnTabTags.classList.remove('active');
+    el.btnTabBacklinks.classList.remove('active');
     el.outlineView.classList.remove('hidden');
     el.tagsView.classList.add('hidden');
+    el.backlinksView.classList.add('hidden');
     rightSidebarTab = 'outline';
     updateOutline(getContent(editorView));
   });
@@ -1280,10 +1467,23 @@ function setupEventListeners() {
   el.btnTabTags.addEventListener('click', () => {
     el.btnTabOutline.classList.remove('active');
     el.btnTabTags.classList.add('active');
+    el.btnTabBacklinks.classList.remove('active');
     el.outlineView.classList.add('hidden');
     el.tagsView.classList.remove('hidden');
+    el.backlinksView.classList.add('hidden');
     rightSidebarTab = 'tags';
     updateTagsView();
+  });
+
+  el.btnTabBacklinks.addEventListener('click', () => {
+    el.btnTabOutline.classList.remove('active');
+    el.btnTabTags.classList.remove('active');
+    el.btnTabBacklinks.classList.add('active');
+    el.outlineView.classList.add('hidden');
+    el.tagsView.classList.add('hidden');
+    el.backlinksView.classList.remove('hidden');
+    rightSidebarTab = 'backlinks';
+    updateBacklinksView();
   });
 
   // Mode triggers
@@ -1418,6 +1618,47 @@ function setupEventListeners() {
     const onMouseUp = () => {
       rightSidebar.classList.remove('resizing');
       rightResizer.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      if (editorView) {
+        editorView.requestMeasure();
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
+  // Drag-to-resize split view panes (editor and preview)
+  el.splitDivider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    el.splitDivider.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+
+    const paneWidth = el.paneContent.offsetWidth;
+    const paneLeft = el.paneContent.getBoundingClientRect().left;
+
+    const onMouseMove = (moveEvent) => {
+      const clientX = moveEvent.clientX;
+      const relativeX = clientX - paneLeft;
+      
+      // Calculate percentage with boundary limits (between 15% and 85%)
+      let percentage = (relativeX / paneWidth) * 100;
+      if (percentage < 15) percentage = 15;
+      if (percentage > 85) percentage = 85;
+
+      splitPercentage = percentage;
+      el.editorContainer.style.flex = 'none';
+      el.editorContainer.style.width = `${percentage}%`;
+      
+      if (editorView) {
+        editorView.requestMeasure();
+      }
+    };
+
+    const onMouseUp = () => {
+      el.splitDivider.classList.remove('dragging');
       document.body.style.cursor = '';
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
