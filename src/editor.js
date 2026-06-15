@@ -9,7 +9,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap, HighlightStyle } from '@codemirror/language';
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { closeBrackets, closeBracketsKeymap, autocompletion } from '@codemirror/autocomplete';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { tags } from '@lezer/highlight';
 
@@ -75,14 +75,43 @@ const noteDeskTheme = EditorView.theme({
     backgroundColor: 'rgba(124, 58, 237, 0.25)',
     outline: '1px solid rgba(124, 58, 237, 0.4)',
   },
-  '.cm-panels': {
-    backgroundColor: 'var(--bg-tertiary, #202020)',
-    color: 'var(--text-normal, #dcdcdc)',
-  },
   '.cm-tooltip': {
     backgroundColor: 'var(--bg-tertiary, #202020)',
     border: '1px solid var(--border-color, #2e2e2e)',
     color: 'var(--text-normal, #dcdcdc)',
+  },
+  '.cm-tooltip-autocomplete': {
+    backgroundColor: 'var(--bg-secondary, #161616) !important',
+    border: '1px solid var(--border-color, #2e2e2e) !important',
+    borderRadius: 'var(--radius-md, 6px) !important',
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5) !important',
+    padding: '4px !important',
+  },
+  '.cm-completionList': {
+    fontFamily: 'var(--font-ui) !important',
+    fontSize: '13px !important',
+    maxHeight: '200px !important',
+  },
+  '.cm-completionList li': {
+    borderRadius: 'var(--radius-sm, 4px) !important',
+    padding: '6px 10px !important',
+    display: 'flex !important',
+    alignItems: 'center !important',
+    gap: '8px !important',
+    color: 'var(--text-muted, #a0a0a0) !important',
+  },
+  '.cm-completionList li[aria-selected]': {
+    backgroundColor: 'var(--bg-active, #2b2b2b) !important',
+    color: 'var(--text-normal, #ffffff) !important',
+  },
+  '.cm-completionDetail': {
+    fontStyle: 'italic !important',
+    opacity: '0.6 !important',
+    fontSize: '11px !important',
+    marginLeft: 'auto !important',
+  },
+  '.cm-completionIcon': {
+    opacity: '0.8 !important',
   },
 }, { dark: true });
 
@@ -295,9 +324,11 @@ const asteriskKeymap = keymap.of([
  * @param {HTMLElement} parentElement — DOM element to mount the editor into.
  * @param {Object} options
  * @param {Function} options.onChange — Callback invoked with (content: string) on every document change.
+ * @param {Function} options.getNoteNames — Callback that returns an array of existing note names.
+ * @param {Function} options.onCreateNote — Callback invoked when a new note should be created in the background.
  * @returns {EditorView} — The CM6 EditorView instance.
  */
-export function createEditor(parentElement, { onChange } = {}) {
+export function createEditor(parentElement, { onChange, getNoteNames, onCreateNote } = {}) {
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged && onChange) {
       const content = update.state.doc.toString();
@@ -315,6 +346,73 @@ export function createEditor(parentElement, { onChange } = {}) {
       indentOnInput(),
       bracketMatching(),
       closeBrackets(),
+
+      // Custom Wikilinks Autocompletion
+      autocompletion({
+        override: [
+          (context) => {
+            const before = context.matchBefore(/\[\[([^\]]*)$/);
+            if (!before) return null;
+
+            const query = before.text.slice(2);
+            const noteNames = getNoteNames ? getNoteNames() : [];
+
+            // Map existing notes
+            const options = noteNames
+              .filter(name => name.toLowerCase().includes(query.toLowerCase()))
+              .map(name => ({
+                label: name,
+                type: "file",
+                detail: "Nota existente",
+                apply: (view, completion, from, to) => {
+                  const insertText = name + "]]";
+                  const afterCursor = view.state.sliceDoc(to, to + 2);
+                  let replaceTo = to;
+                  if (afterCursor === "]]") {
+                    replaceTo = to + 2;
+                  } else if (afterCursor.startsWith("]")) {
+                    replaceTo = to + 1;
+                  }
+                  view.dispatch({
+                    changes: { from, to: replaceTo, insert: insertText }
+                  });
+                }
+              }));
+
+            // Offer creation if query is not empty and not an exact match
+            const exactMatch = noteNames.some(name => name.toLowerCase() === query.toLowerCase());
+            if (!exactMatch && query.trim().length > 0) {
+              const nameToCreate = query.trim();
+              options.push({
+                label: `✨ Crear nueva página "${nameToCreate}"`,
+                type: "action",
+                detail: "Nueva nota",
+                apply: (view, completion, from, to) => {
+                  const insertText = nameToCreate + "]]";
+                  const afterCursor = view.state.sliceDoc(to, to + 2);
+                  let replaceTo = to;
+                  if (afterCursor === "]]") {
+                    replaceTo = to + 2;
+                  } else if (afterCursor.startsWith("]")) {
+                    replaceTo = to + 1;
+                  }
+                  view.dispatch({
+                    changes: { from, to: replaceTo, insert: insertText }
+                  });
+                  if (onCreateNote) {
+                    onCreateNote(nameToCreate);
+                  }
+                }
+              });
+            }
+
+            return {
+              from: before.from + 2,
+              options
+            };
+          }
+        ]
+      }),
 
       // Custom Markdown formatting handlers
       asteriskInputHandler,

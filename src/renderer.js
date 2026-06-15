@@ -32,6 +32,45 @@ function ensureLeftSidebarExpanded() {
   }
 }
 
+function findFileInTree(nodes, fileName) {
+  const cleanName = fileName.trim().toLowerCase();
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      const nodeNameNoExt = node.name.replace(/\.md$/, '').replace(/\.txt$/, '').trim().toLowerCase();
+      if (nodeNameNoExt === cleanName) {
+        return node.path;
+      }
+    } else if (node.type === 'directory') {
+      const foundPath = findFileInTree(node.children, fileName);
+      if (foundPath) return foundPath;
+    }
+  }
+  return null;
+}
+
+async function handleWikilinkClick(noteName) {
+  const foundPath = findFileInTree(fileTreeData, noteName);
+  if (foundPath) {
+    await openNote(foundPath);
+  } else {
+    const confirmed = await showConfirmModal(
+      'Crear Nota',
+      `La nota "${noteName}" no existe. ¿Deseas crearla?`
+    );
+    if (confirmed) {
+      try {
+        const folder = selectedFolderPath || null;
+        const newPath = await window.api.createNote(folder, noteName);
+        await refreshFileExplorer();
+        await openNote(newPath);
+      } catch (err) {
+        console.error(err);
+        showNotification(err.message, 'error');
+      }
+    }
+  }
+}
+
 // --- Path Comparison Helpers ---
 function isPathEqual(pathA, pathB) {
   if (!pathA || !pathB) return false;
@@ -99,6 +138,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateOutline(content);
       queueAutoSave();
     },
+    getNoteNames: () => {
+      return getAllNoteNames(fileTreeData);
+    },
+    onCreateNote: async (name) => {
+      try {
+        const folder = selectedFolderPath || null;
+        const newPath = await window.api.createNote(folder, name);
+        await refreshFileExplorer();
+        showNotification(`Nota "${name}" creada en segundo plano.`, 'success');
+      } catch (err) {
+        console.error('Error al crear nota desde el autocompletado:', err);
+        showNotification('No se pudo crear la nota.', 'error');
+      }
+    }
   });
 
   setupEventListeners();
@@ -394,6 +447,21 @@ function getSearchMatchPaths(nodes, query) {
 
   nodes.forEach(checkNode);
   return matchedPaths;
+}
+
+function getAllNoteNames(nodes) {
+  const names = [];
+  function recurse(list) {
+    list.forEach(node => {
+      if (node.type === 'file') {
+        names.push(node.name.replace(/\.md$/, '').replace(/\.txt$/, ''));
+      } else if (node.type === 'directory') {
+        recurse(node.children);
+      }
+    });
+  }
+  recurse(nodes);
+  return names;
 }
 
 // --- Note File Loading and Saving ---
@@ -896,6 +964,15 @@ async function updatePreview(markdownText) {
     const preprocessed = preprocessMarkdown(markdownText || '');
     const html = await window.api.parseMarkdown(preprocessed);
     el.markdownPreview.innerHTML = nestHeadings(html);
+
+    // Style wikilinks based on file existence
+    el.markdownPreview.querySelectorAll('.wikilink').forEach(link => {
+      const noteName = decodeURIComponent(link.dataset.target);
+      const exists = findFileInTree(fileTreeData, noteName);
+      if (!exists) {
+        link.classList.add('new-note');
+      }
+    });
   } catch (err) {
     el.markdownPreview.innerHTML = `<p style="color: red;">Error al procesar Markdown: ${err.message}</p>`;
   }
@@ -1054,6 +1131,16 @@ function setViewMode(mode) {
 
 // --- Event Listeners Wiring ---
 function setupEventListeners() {
+  // Intercept Wikilinks in Preview
+  el.markdownPreview.addEventListener('click', async (e) => {
+    const wikiLink = e.target.closest('.wikilink');
+    if (wikiLink) {
+      e.preventDefault();
+      const noteName = decodeURIComponent(wikiLink.dataset.target);
+      await handleWikilinkClick(noteName);
+    }
+  });
+
   // Vault Rename
   el.vaultInfo.addEventListener('click', async () => {
     try {

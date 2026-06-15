@@ -1318,6 +1318,29 @@ body {
   z-index: 110;
 }
 
+/* --- Wikilinks Styling --- */
+.markdown-body a.wikilink {
+  color: #c084fc; /* lighter violet-purple for readability on dark theme */
+  font-weight: 500;
+  border-bottom: 1.5px solid transparent;
+  transition: border-bottom-color var(--transition-fast), opacity var(--transition-fast);
+}
+
+.markdown-body a.wikilink:hover {
+  text-decoration: none;
+  border-bottom-color: #c084fc;
+}
+
+.markdown-body a.wikilink.new-note {
+  color: rgba(192, 132, 252, 0.6); /* faded purple */
+  border-bottom: 1.5px dashed rgba(192, 132, 252, 0.4);
+}
+
+.markdown-body a.wikilink.new-note:hover {
+  color: rgba(192, 132, 252, 0.9);
+  border-bottom-color: rgba(192, 132, 252, 0.8);
+}
+
 
 
 

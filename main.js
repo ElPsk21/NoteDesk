@@ -9,13 +9,35 @@ marked.setOptions({
   breaks: true,
 });
 
-// Disable indented code blocks to allow leading spaces for visual outline indentation
+// Disable indented code blocks to allow leading spaces for visual outline indentation, and add Wikilink support
 marked.use({
   tokenizer: {
     code(src) {
       return undefined;
     }
-  }
+  },
+  extensions: [
+    {
+      name: 'wikilink',
+      level: 'inline',
+      start(src) { return src.indexOf('[['); },
+      tokenizer(src, tokens) {
+        const rule = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/;
+        const match = rule.exec(src);
+        if (match) {
+          return {
+            type: 'wikilink',
+            raw: match[0],
+            noteName: match[1].trim(),
+            label: match[2] ? match[2].trim() : match[1].trim()
+          };
+        }
+      },
+      renderer(token) {
+        return `<a class="wikilink" href="#" data-target="${encodeURIComponent(token.noteName)}">${token.label}</a>`;
+      }
+    }
+  ]
 });
 
 
@@ -131,7 +153,7 @@ function buildFileTree(dirPath) {
       if (childTree) {
         children.push(childTree);
       }
-    } else if (fileStats.isFile() && (file.endsWith('.md') || file.endsWith('.txt'))) {
+    } else if (fileStats.isFile() && (file.toLowerCase().endsWith('.md') || file.toLowerCase().endsWith('.txt'))) {
       children.push({
         name: file,
         path: fullPath,
@@ -270,7 +292,7 @@ ipcMain.handle('rename-item', async (event, oldPath, newName) => {
   const dir = path.dirname(oldPath);
   let targetName = cleanName;
 
-  if (stats.isFile() && !cleanName.endsWith('.md') && !cleanName.endsWith('.txt')) {
+  if (stats.isFile() && !cleanName.toLowerCase().endsWith('.md') && !cleanName.toLowerCase().endsWith('.txt')) {
     const ext = path.extname(oldPath);
     targetName = cleanName + ext;
   }
@@ -426,7 +448,7 @@ function scanTagsRecursively(dirPath, tagMap = {}) {
       const stats = fs.statSync(fullPath);
       if (stats.isDirectory()) {
         scanTagsRecursively(fullPath, tagMap);
-      } else if (stats.isFile() && (file.endsWith('.md') || file.endsWith('.txt'))) {
+      } else if (stats.isFile() && (file.toLowerCase().endsWith('.md') || file.toLowerCase().endsWith('.txt'))) {
         const content = fs.readFileSync(fullPath, 'utf8');
         // Match hashtags like #tag, excluding headers (# Heading) and hex colors (#123)
         const regex = /(?:^|\s)#([a-zA-Z0-9_\-áéíóúÁÉÍÓÚñÑ]+)/g;
