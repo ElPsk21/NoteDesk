@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { marked } = require('marked');
@@ -10,7 +10,9 @@ marked.setOptions({
 });
 
 
-const configFilePath = path.join(__dirname, 'config.json');
+let configFilePath = '';
+let config = {};
+let vaultPath = '';
 
 function loadConfig() {
   try {
@@ -26,24 +28,40 @@ function loadConfig() {
 
 function saveConfig(cfg) {
   try {
+    const dir = path.dirname(configFilePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     fs.writeFileSync(configFilePath, JSON.stringify(cfg, null, 2), 'utf8');
   } catch (err) {
     console.error('Error saving config:', err);
   }
 }
 
-let config = loadConfig();
-let vaultPath = config.vaultPath || path.join(__dirname, 'vault');
+function initializeConfigAndVault() {
+  if (app.isPackaged) {
+    configFilePath = path.join(app.getPath('userData'), 'config.json');
+  } else {
+    configFilePath = path.join(__dirname, 'config.json');
+  }
 
-// Ensure vault directory exists
-if (!fs.existsSync(vaultPath)) {
-  fs.mkdirSync(vaultPath, { recursive: true });
-}
+  config = loadConfig();
 
-// Save default config if not set
-if (!config.vaultPath) {
-  config.vaultPath = vaultPath;
-  saveConfig(config);
+  if (config.vaultPath) {
+    vaultPath = config.vaultPath;
+  } else {
+    if (app.isPackaged) {
+      vaultPath = path.join(app.getPath('documents'), 'NoteDesk Bóveda');
+    } else {
+      vaultPath = path.join(__dirname, 'vault');
+    }
+    config.vaultPath = vaultPath;
+    saveConfig(config);
+  }
+
+  if (!fs.existsSync(vaultPath)) {
+    fs.mkdirSync(vaultPath, { recursive: true });
+  }
 }
 
 function createWindow() {
@@ -68,6 +86,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  initializeConfigAndVault();
   createWindow();
 
   app.on('activate', () => {
@@ -320,5 +339,68 @@ ipcMain.handle('rename-vault', async (event, newName) => {
 
   return vaultPath;
 });
+
+ipcMain.on('show-item-context-menu', (event, filePath, isDirectory) => {
+  const template = [];
+
+  if (isDirectory) {
+    template.push(
+      {
+        label: 'Nueva Nota',
+        click: () => {
+          event.sender.send('context-menu-command', { command: 'create-note', filePath });
+        }
+      },
+      {
+        label: 'Nueva Carpeta',
+        click: () => {
+          event.sender.send('context-menu-command', { command: 'create-folder', filePath });
+        }
+      },
+      { type: 'separator' }
+    );
+  } else {
+    template.push(
+      {
+        label: 'Abrir Nota',
+        click: () => {
+          event.sender.send('context-menu-command', { command: 'open-note', filePath });
+        }
+      },
+      { type: 'separator' }
+    );
+  }
+
+  template.push(
+    {
+      label: 'Renombrar',
+      click: () => {
+        event.sender.send('context-menu-command', { command: 'rename-item', filePath });
+      }
+    },
+    {
+      label: 'Eliminar',
+      click: () => {
+        event.sender.send('context-menu-command', { command: 'delete-item', filePath });
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Mostrar en el explorador de archivos',
+      click: () => {
+        if (isDirectory) {
+          shell.openPath(filePath);
+        } else {
+          shell.showItemInFolder(filePath);
+        }
+      }
+    }
+  );
+
+  const menu = Menu.buildFromTemplate(template);
+  const win = BrowserWindow.fromWebContents(event.sender);
+  menu.popup({ window: win });
+});
+
 
 

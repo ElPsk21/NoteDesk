@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('api', {
   moveItem: (oldPath, targetFolderPath) => ipcRenderer.invoke('move-item', oldPath, targetFolderPath),
   parseMarkdown: (text) => ipcRenderer.invoke('parse-markdown', text),
   renameVault: (newName) => ipcRenderer.invoke('rename-vault', newName),
+  showItemContextMenu: (filePath, isDirectory) => ipcRenderer.send('show-item-context-menu', filePath, isDirectory),
+  onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', (event, data) => callback(data)),
 });
 
 

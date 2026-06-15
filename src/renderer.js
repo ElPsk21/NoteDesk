@@ -313,6 +313,13 @@ function renderTreeNodes(nodes, container, depth = 0, matchingPaths = null) {
       }
     });
 
+    // Right-Click Context Menu Interaction
+    nodeRow.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.api.showItemContextMenu(node.path, node.type === 'directory');
+    });
+
     container.appendChild(nodeRow);
 
     // Recursively render children if folder is expanded
@@ -684,6 +691,25 @@ function setupEventListeners() {
       } else {
         setViewMode('edit');
       }
+    }
+  });
+
+  // Handle commands sent from native context menu click
+  window.api.onContextMenuCommand(async ({ command, filePath }) => {
+    if (command === 'open-note') {
+      await openNote(filePath);
+    } else if (command === 'rename-item') {
+      const parts = filePath.split(/[\\/]/);
+      const name = parts[parts.length - 1];
+      await handleRenameNode(filePath, name);
+    } else if (command === 'delete-item') {
+      const parts = filePath.split(/[\\/]/);
+      const name = parts[parts.length - 1];
+      await handleDeleteNode(filePath, name);
+    } else if (command === 'create-note') {
+      await handleCreateNote(filePath);
+    } else if (command === 'create-folder') {
+      await handleCreateFolder(filePath);
     }
   });
 }
