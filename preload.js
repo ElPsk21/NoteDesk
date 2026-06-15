@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('api', {
   renameVault: (newName) => ipcRenderer.invoke('rename-vault', newName),
   showItemContextMenu: (filePath, isDirectory) => ipcRenderer.send('show-item-context-menu', filePath, isDirectory),
   onContextMenuCommand: (callback) => ipcRenderer.on('context-menu-command', (event, data) => callback(data)),
+  openVaultDialog: () => ipcRenderer.invoke('open-vault-dialog'),
+  getVaultTags: () => ipcRenderer.invoke('get-vault-tags'),
 });
 
 

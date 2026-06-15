@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { marked } = require('marked');
@@ -401,6 +401,73 @@ ipcMain.on('show-item-context-menu', (event, filePath, isDirectory) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   menu.popup({ window: win });
 });
+
+// Helper to recursively scan tags in files
+function scanTagsRecursively(dirPath, tagMap = {}) {
+  try {
+    if (!fs.existsSync(dirPath)) return tagMap;
+    const files = fs.readdirSync(dirPath);
+    for (const file of files) {
+      if (file.startsWith('.')) continue;
+      const fullPath = path.join(dirPath, file);
+      const stats = fs.statSync(fullPath);
+      if (stats.isDirectory()) {
+        scanTagsRecursively(fullPath, tagMap);
+      } else if (stats.isFile() && (file.endsWith('.md') || file.endsWith('.txt'))) {
+        const content = fs.readFileSync(fullPath, 'utf8');
+        // Match hashtags like #tag, excluding headers (# Heading) and hex colors (#123)
+        const regex = /(?:^|\s)#([a-zA-Z0-9_\-áéíóúÁÉÍÓÚñÑ]+)/g;
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+          const tagName = '#' + match[1];
+          // Skip standard CSS hex colors
+          if (/^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$/.test(tagName)) {
+            continue;
+          }
+          if (!tagMap[tagName]) {
+            tagMap[tagName] = [];
+          }
+          if (!tagMap[tagName].some(f => f.path === fullPath)) {
+            tagMap[tagName].push({
+              name: file,
+              path: fullPath
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error scanning tags in:', dirPath, err);
+  }
+  return tagMap;
+}
+
+ipcMain.handle('open-vault-dialog', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    title: 'Seleccionar Carpeta de Bóveda',
+    properties: ['openDirectory', 'createDirectory']
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  const selectedPath = result.filePaths[0];
+
+  // Update vaultPath and configuration
+  vaultPath = selectedPath;
+  config.vaultPath = vaultPath;
+  saveConfig(config);
+
+  return vaultPath;
+});
+
+ipcMain.handle('get-vault-tags', async () => {
+  const tagMap = scanTagsRecursively(vaultPath);
+  return tagMap;
+});
+
 
 
 

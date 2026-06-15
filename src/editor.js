@@ -396,3 +396,22 @@ export function setContent(view, text) {
 export function focusEditor(view) {
   view.focus();
 }
+
+/**
+ * Scroll the editor to a specific line number.
+ * @param {EditorView} view
+ * @param {number} lineNum
+ */
+export function scrollToLine(view, lineNum) {
+  try {
+    const line = view.state.doc.line(lineNum);
+    view.dispatch({
+      effects: EditorView.scrollIntoView(line.from, { y: 'start' }),
+      selection: { anchor: line.from }
+    });
+    view.focus();
+  } catch (err) {
+    console.error('Error scrolling to line:', lineNum, err);
+  }
+}
+

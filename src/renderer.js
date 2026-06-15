@@ -1,8 +1,8 @@
 // --- CodeMirror 6 Editor ---
-import { createEditor, getContent, setContent, focusEditor } from './editor.js';
+import { createEditor, getContent, setContent, focusEditor, scrollToLine } from './editor.js';
 
 // --- Application State ---
-let currentFilePath = null;
+let currentFilePath = null; // Replaced by activeTabPath, but kept as a helper ref to not break other handlers directly
 let currentFileContent = '';
 let isUnsaved = false;
 let saveTimeout = null;
@@ -11,6 +11,12 @@ let fileTreeData = [];
 let viewMode = 'edit'; // 'edit', 'preview', 'split'
 let selectedFolderPath = null; // Track currently selected folder for creation targets
 let editorView = null; // CodeMirror EditorView instance
+
+// --- Section 3 Application State ---
+let openTabs = []; // Array of { path, name }
+let activeTabPath = null;
+let rightSidebarTab = 'outline'; // 'outline' or 'tags'
+let collapsedTags = new Set(); // Set of collapsed tag strings
 
 // --- Path Comparison Helpers ---
 function isPathEqual(pathA, pathB) {
@@ -50,6 +56,14 @@ const el = {
   btnModeSplit: document.getElementById('btn-mode-split'),
   btnModePreview: document.getElementById('btn-mode-preview'),
   
+  // Section 3 Elements
+  tabBar: document.getElementById('tab-bar'),
+  btnOpenVault: document.getElementById('btn-open-vault'),
+  btnTabOutline: document.getElementById('btn-tab-outline'),
+  btnTabTags: document.getElementById('btn-tab-tags'),
+  outlineView: document.getElementById('outline-view'),
+  tagsView: document.getElementById('tags-view'),
+  
   // Modals
   modalContainer: document.getElementById('modal-container'),
   modalTitle: document.getElementById('modal-title'),
@@ -68,6 +82,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (viewMode === 'preview' || viewMode === 'split') {
         updatePreview(content);
       }
+      updateOutline(content);
       queueAutoSave();
     },
   });
@@ -195,7 +210,7 @@ function renderTreeNodes(nodes, container, depth = 0, matchingPaths = null) {
               currentFilePath = newPath;
               const parts = newPath.split(/[\\/]/);
               const name = parts[parts.length - 1];
-              el.noteTitleDisplay.textContent = name.replace(/\.md$/, '');
+              if (el.noteTitleDisplay) el.noteTitleDisplay.textContent = name.replace(/\.md$/, '');
             }
             
             await refreshFileExplorer();
@@ -369,6 +384,13 @@ function getSearchMatchPaths(nodes, query) {
 
 // --- Note File Loading and Saving ---
 async function openNote(filePath) {
+  // If already open, switch to it
+  const existingTab = openTabs.find(t => isPathEqual(t.path, filePath));
+  if (existingTab) {
+    await switchTab(filePath);
+    return;
+  }
+
   // If there's unsaved changes, prompt save first
   if (isUnsaved) {
     await saveCurrentNoteImmediately();
@@ -376,18 +398,23 @@ async function openNote(filePath) {
 
   try {
     const content = await window.api.readNote(filePath);
-    currentFilePath = filePath;
     currentFileContent = content;
     isUnsaved = false;
     
-    // Set UI states
+    // Add to open tabs
     const parts = filePath.split(/[\\/]/);
     const fileName = parts[parts.length - 1];
-    el.noteTitleDisplay.textContent = fileName.replace(/\.md$/, '');
+    openTabs.push({ path: filePath, name: fileName });
+    activeTabPath = filePath;
+    currentFilePath = filePath;
+    
+    // Set UI states
+    if (el.noteTitleDisplay) el.noteTitleDisplay.textContent = fileName.replace(/\.md$/, '');
     
     setContent(editorView, content);
     updateWordCount(content);
     updatePreview(content);
+    updateOutline(content);
     
     el.welcomePane.classList.add('hidden');
     el.editorPane.classList.remove('hidden');
@@ -395,8 +422,13 @@ async function openNote(filePath) {
     el.saveStatus.textContent = 'Guardado';
     el.saveStatus.classList.remove('unsaved');
     
-    // Refresh explorer to mark active node
+    renderTabs();
     renderFileExplorer();
+    
+    // Refresh tags view if active
+    if (rightSidebarTab === 'tags') {
+      updateTagsView();
+    }
   } catch (err) {
     console.error('Error al abrir la nota:', err);
     showNotification('No se pudo abrir la nota seleccionada.', 'error');
@@ -404,17 +436,25 @@ async function openNote(filePath) {
 }
 
 async function saveCurrentNoteImmediately() {
-  if (!currentFilePath) return;
+  if (!activeTabPath) return;
   clearTimeout(saveTimeout);
   
   try {
     const content = getContent(editorView);
-    await window.api.saveNote(currentFilePath, content);
+    await window.api.saveNote(activeTabPath, content);
     currentFileContent = content;
     isUnsaved = false;
     
     el.saveStatus.textContent = 'Guardado';
     el.saveStatus.classList.remove('unsaved');
+    
+    // Refresh tab bar to clear unsaved dot
+    renderTabs();
+    
+    // Refresh tags if they changed
+    if (rightSidebarTab === 'tags') {
+      updateTagsView();
+    }
   } catch (err) {
     console.error('Error al guardar:', err);
     el.saveStatus.textContent = 'Error al guardar';
@@ -423,16 +463,240 @@ async function saveCurrentNoteImmediately() {
 
 // Debounced auto-save
 function queueAutoSave() {
-  if (!currentFilePath) return;
+  if (!activeTabPath) return;
   
   isUnsaved = true;
   el.saveStatus.textContent = 'Modificado';
   el.saveStatus.classList.add('unsaved');
   
+  // Show unsaved dot on tab
+  renderTabs();
+  
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(async () => {
     await saveCurrentNoteImmediately();
   }, 800);
+}
+
+// --- Section 3 Tab Navigation Management ---
+function renderTabs() {
+  el.tabBar.innerHTML = '';
+  
+  if (openTabs.length === 0) {
+    el.welcomePane.classList.remove('hidden');
+    el.editorPane.classList.add('hidden');
+    activeTabPath = null;
+    currentFilePath = null;
+    updateOutline('');
+    return;
+  }
+
+  openTabs.forEach(tab => {
+    const tabEl = document.createElement('div');
+    const isActive = isPathEqual(tab.path, activeTabPath);
+    tabEl.className = `tab-item ${isActive ? 'active' : ''} ${isActive && isUnsaved ? 'unsaved' : ''}`;
+    tabEl.dataset.path = tab.path;
+    
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'tab-name';
+    nameSpan.textContent = tab.name.replace(/\.md$/, '');
+    tabEl.appendChild(nameSpan);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tab-close';
+    closeBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    `;
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeTab(tab.path);
+    });
+    tabEl.appendChild(closeBtn);
+
+    tabEl.addEventListener('click', () => {
+      switchTab(tab.path);
+    });
+
+    el.tabBar.appendChild(tabEl);
+  });
+}
+
+async function switchTab(filePath) {
+  if (isPathEqual(filePath, activeTabPath)) return;
+  
+  if (isUnsaved) {
+    await saveCurrentNoteImmediately();
+  }
+
+  activeTabPath = filePath;
+  currentFilePath = filePath;
+  
+  try {
+    const content = await window.api.readNote(filePath);
+    currentFileContent = content;
+    isUnsaved = false;
+
+    const parts = filePath.split(/[\\/]/);
+    const fileName = parts[parts.length - 1];
+    if (el.noteTitleDisplay) el.noteTitleDisplay.textContent = fileName.replace(/\.md$/, '');
+    
+    setContent(editorView, content);
+    updateWordCount(content);
+    updatePreview(content);
+    updateOutline(content);
+
+    el.welcomePane.classList.add('hidden');
+    el.editorPane.classList.remove('hidden');
+
+    el.saveStatus.textContent = 'Guardado';
+    el.saveStatus.classList.remove('unsaved');
+
+    renderTabs();
+    renderFileExplorer();
+    
+    if (rightSidebarTab === 'tags') {
+      updateTagsView();
+    }
+  } catch (err) {
+    console.error('Error switching tab:', err);
+    showNotification('No se pudo abrir la nota seleccionada.', 'error');
+  }
+}
+
+async function closeTab(filePath) {
+  const index = openTabs.findIndex(t => isPathEqual(t.path, filePath));
+  if (index === -1) return;
+
+  if (isPathEqual(filePath, activeTabPath) && isUnsaved) {
+    await saveCurrentNoteImmediately();
+  }
+
+  openTabs.splice(index, 1);
+
+  if (isPathEqual(filePath, activeTabPath)) {
+    if (openTabs.length > 0) {
+      const nextIndex = Math.min(index, openTabs.length - 1);
+      const nextTab = openTabs[nextIndex];
+      activeTabPath = null;
+      await switchTab(nextTab.path);
+    } else {
+      activeTabPath = null;
+      currentFilePath = null;
+      renderTabs();
+      renderFileExplorer();
+    }
+  } else {
+    renderTabs();
+  }
+}
+
+// --- Section 3 Outline (Table of Contents) Logic ---
+function updateOutline(markdownText) {
+  el.outlineView.innerHTML = '';
+  
+  if (!activeTabPath || !markdownText) {
+    el.outlineView.innerHTML = '<div class="empty-sidebar-view">Abre una nota para ver su índice.</div>';
+    return;
+  }
+
+  const lines = markdownText.split('\n');
+  const headings = [];
+
+  lines.forEach((line, index) => {
+    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    if (match) {
+      headings.push({
+        level: match[1].length,
+        text: match[2].trim(),
+        lineNum: index + 1
+      });
+    }
+  });
+
+  if (headings.length === 0) {
+    el.outlineView.innerHTML = '<div class="empty-sidebar-view">No se encontraron títulos.</div>';
+    return;
+  }
+
+  headings.forEach(heading => {
+    const item = document.createElement('div');
+    item.className = `outline-item h${heading.level}`;
+    item.textContent = heading.text;
+    item.title = heading.text;
+    item.addEventListener('click', () => {
+      scrollToLine(editorView, heading.lineNum);
+    });
+    el.outlineView.appendChild(item);
+  });
+}
+
+// --- Section 3 Tags Explorer Logic ---
+async function updateTagsView() {
+  el.tagsView.innerHTML = '';
+  
+  try {
+    const tagsMap = await window.api.getVaultTags();
+    const tagNames = Object.keys(tagsMap).sort((a, b) => a.localeCompare(b));
+
+    if (tagNames.length === 0) {
+      el.tagsView.innerHTML = '<div class="empty-sidebar-view">No se encontraron etiquetas.</div>';
+      return;
+    }
+
+    tagNames.forEach(tag => {
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'tag-group';
+
+      const headerDiv = document.createElement('div');
+      headerDiv.className = 'tag-header';
+      
+      const tagText = document.createElement('span');
+      tagText.textContent = tag;
+
+      const tagCount = document.createElement('span');
+      tagCount.className = 'tag-count';
+      tagCount.textContent = tagsMap[tag].length;
+
+      headerDiv.appendChild(tagText);
+      headerDiv.appendChild(tagCount);
+
+      const filesDiv = document.createElement('div');
+      filesDiv.className = 'tag-files';
+      if (collapsedTags.has(tag)) {
+        filesDiv.classList.add('collapsed');
+      }
+
+      headerDiv.addEventListener('click', () => {
+        const isCollapsed = filesDiv.classList.toggle('collapsed');
+        if (isCollapsed) {
+          collapsedTags.add(tag);
+        } else {
+          collapsedTags.delete(tag);
+        }
+      });
+
+      tagsMap[tag].forEach(file => {
+        const fileLink = document.createElement('div');
+        fileLink.className = 'tag-file-link';
+        fileLink.textContent = file.name.replace(/\.md$/, '');
+        fileLink.title = file.path;
+        fileLink.addEventListener('click', () => {
+          openNote(file.path);
+        });
+        filesDiv.appendChild(fileLink);
+      });
+
+      groupDiv.appendChild(headerDiv);
+      groupDiv.appendChild(filesDiv);
+      el.tagsView.appendChild(groupDiv);
+    });
+  } catch (err) {
+    console.error('Error updating tags view:', err);
+    el.tagsView.innerHTML = '<div class="empty-sidebar-view">Error al cargar etiquetas.</div>';
+  }
 }
 
 // Update Markdown Preview
@@ -494,18 +758,37 @@ async function handleRenameNode(itemPath, currentName) {
   if (newName === null) return; // cancelled
 
   try {
-    const isFile = itemPath.endsWith('.md') || itemPath.endsWith('.txt');
     const newPath = await window.api.renameItem(itemPath, newName);
     
-    // If renaming active file, reload details
-    if (isPathEqual(currentFilePath, itemPath)) {
-      currentFilePath = newPath;
-      const parts = newPath.split(/[\\/]/);
+    // Update open tabs
+    openTabs.forEach(tab => {
+      if (isPathEqual(tab.path, itemPath)) {
+        tab.path = newPath;
+        const parts = newPath.split(/[\\/]/);
+        tab.name = parts[parts.length - 1];
+      } else if (isPathSubpath(tab.path, itemPath)) {
+        tab.path = newPath + tab.path.slice(itemPath.length);
+      }
+    });
+
+    if (activeTabPath && (isPathEqual(activeTabPath, itemPath) || isPathSubpath(activeTabPath, itemPath))) {
+      if (isPathEqual(activeTabPath, itemPath)) {
+        activeTabPath = newPath;
+      } else {
+        activeTabPath = newPath + activeTabPath.slice(itemPath.length);
+      }
+      currentFilePath = activeTabPath;
+      const parts = activeTabPath.split(/[\\/]/);
       const name = parts[parts.length - 1];
-      el.noteTitleDisplay.textContent = name.replace(/\.md$/, '');
+      if (el.noteTitleDisplay) el.noteTitleDisplay.textContent = name.replace(/\.md$/, '');
     }
 
+    renderTabs();
     await refreshFileExplorer();
+    
+    if (rightSidebarTab === 'tags') {
+      updateTagsView();
+    }
   } catch (err) {
     console.error(err);
     showNotification(err.message, 'error');
@@ -519,18 +802,37 @@ async function handleDeleteNode(itemPath, itemName) {
   try {
     await window.api.deleteItem(itemPath);
     
-    // If active note (or its parent directory) was deleted, clear workspace
-    if (isPathSubpath(currentFilePath, itemPath)) {
-      currentFilePath = null;
-      currentFileContent = '';
-      isUnsaved = false;
-      el.editorPane.classList.add('hidden');
-      el.welcomePane.classList.remove('hidden');
-      el.statusWordCount.classList.add('hidden');
-      el.statusCharCount.classList.add('hidden');
+    // Close any tabs that were inside the deleted item
+    const tabsToClose = openTabs.filter(tab => isPathEqual(tab.path, itemPath) || isPathSubpath(tab.path, itemPath));
+    tabsToClose.forEach(tab => {
+      const idx = openTabs.findIndex(t => isPathEqual(t.path, tab.path));
+      if (idx !== -1) {
+        openTabs.splice(idx, 1);
+      }
+    });
+
+    if (activeTabPath && (isPathEqual(activeTabPath, itemPath) || isPathSubpath(activeTabPath, itemPath))) {
+      if (openTabs.length > 0) {
+        activeTabPath = null;
+        await switchTab(openTabs[0].path);
+      } else {
+        activeTabPath = null;
+        currentFilePath = null;
+        el.editorPane.classList.add('hidden');
+        el.welcomePane.classList.remove('hidden');
+        el.statusWordCount.classList.add('hidden');
+        el.statusCharCount.classList.add('hidden');
+        updateOutline('');
+      }
+    } else {
+      renderTabs();
     }
 
     await refreshFileExplorer();
+    
+    if (rightSidebarTab === 'tags') {
+      updateTagsView();
+    }
   } catch (err) {
     console.error(err);
     showNotification(err.message, 'error');
@@ -632,7 +934,7 @@ function setupEventListeners() {
           currentFilePath = newPath;
           const parts = newPath.split(/[\\/]/);
           const name = parts[parts.length - 1];
-          el.noteTitleDisplay.textContent = name.replace(/\.md$/, '');
+          if (el.noteTitleDisplay) el.noteTitleDisplay.textContent = name.replace(/\.md$/, '');
         }
 
         await refreshFileExplorer();
@@ -649,8 +951,57 @@ function setupEventListeners() {
   el.btnRefresh.addEventListener('click', () => {
     refreshFileExplorer();
     loadVaultInfo();
+    if (rightSidebarTab === 'tags') {
+      updateTagsView();
+    }
   });
   el.btnWelcomeNewFile.addEventListener('click', () => handleCreateNote());
+
+  // Open Vault Button Listener
+  el.btnOpenVault.addEventListener('click', async () => {
+    try {
+      const newPath = await window.api.openVaultDialog();
+      if (newPath) {
+        // Clear workspace
+        openTabs = [];
+        activeTabPath = null;
+        currentFilePath = null;
+        isUnsaved = false;
+        
+        // Reload UI
+        renderTabs();
+        await loadVaultInfo();
+        await refreshFileExplorer();
+        updateOutline('');
+        if (rightSidebarTab === 'tags') {
+          updateTagsView();
+        }
+        showNotification('Nueva bóveda abierta correctamente.', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification('Error al abrir la bóveda.', 'error');
+    }
+  });
+
+  // Right Sidebar Tab Toggles
+  el.btnTabOutline.addEventListener('click', () => {
+    el.btnTabOutline.classList.add('active');
+    el.btnTabTags.classList.remove('active');
+    el.outlineView.classList.remove('hidden');
+    el.tagsView.classList.add('hidden');
+    rightSidebarTab = 'outline';
+    updateOutline(getContent(editorView));
+  });
+
+  el.btnTabTags.addEventListener('click', () => {
+    el.btnTabOutline.classList.remove('active');
+    el.btnTabTags.classList.add('active');
+    el.outlineView.classList.add('hidden');
+    el.tagsView.classList.remove('hidden');
+    rightSidebarTab = 'tags';
+    updateTagsView();
+  });
 
   // Mode triggers
   el.btnModeEdit.addEventListener('click', () => setViewMode('edit'));
@@ -660,19 +1011,21 @@ function setupEventListeners() {
   // Editor input/tab handling is managed by CodeMirror 6 via the onChange callback
 
   // Double click file title to rename in header
-  el.noteTitleDisplay.addEventListener('dblclick', () => {
-    if (!currentFilePath) return;
-    const parts = currentFilePath.split(/[\\/]/);
-    const fileName = parts[parts.length - 1];
-    handleRenameNode(currentFilePath, fileName);
-  });
+  if (el.noteTitleDisplay) {
+    el.noteTitleDisplay.addEventListener('dblclick', () => {
+      if (!activeTabPath) return;
+      const parts = activeTabPath.split(/[\\/]/);
+      const fileName = parts[parts.length - 1];
+      handleRenameNode(activeTabPath, fileName);
+    });
+  }
 
   // Keyboard Shortcuts (Ctrl+S, Ctrl+N, Ctrl+Alt+P)
   window.addEventListener('keydown', async (e) => {
     // Ctrl + S: Manual Save
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
-      if (currentFilePath && isUnsaved) {
+      if (activeTabPath && isUnsaved) {
         await saveCurrentNoteImmediately();
       }
     }
@@ -712,6 +1065,133 @@ function setupEventListeners() {
       await handleCreateFolder(filePath);
     }
   });
+
+  // --- Workspace Resizing and Collapsing Logic ---
+  const leftSidebar = document.getElementById('left-sidebar');
+  const rightSidebar = document.getElementById('right-sidebar');
+  const leftResizer = document.getElementById('left-resizer');
+  const rightResizer = document.getElementById('right-resizer');
+  const btnCollapseLeft = document.getElementById('btn-collapse-left');
+  const btnCollapseRight = document.getElementById('btn-collapse-right');
+  const btnToggleLeftSidebar = document.getElementById('btn-toggle-left-sidebar');
+  const btnToggleRightSidebar = document.getElementById('btn-toggle-right-sidebar');
+
+  let lastLeftWidth = 260;
+  let lastRightWidth = 250;
+
+  // Drag-to-resize left sidebar
+  leftResizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    leftSidebar.classList.add('resizing');
+    leftResizer.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+
+    const onMouseMove = (moveEvent) => {
+      const newWidth = moveEvent.clientX;
+      if (newWidth > 150 && newWidth < 450) {
+        leftSidebar.style.width = `${newWidth}px`;
+        leftSidebar.classList.remove('collapsed');
+      } else if (newWidth <= 150) {
+        leftSidebar.style.width = '0px';
+        leftSidebar.classList.add('collapsed');
+      }
+    };
+
+    const onMouseUp = () => {
+      leftSidebar.classList.remove('resizing');
+      leftResizer.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      if (editorView) {
+        editorView.requestMeasure();
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
+  // Drag-to-resize right sidebar
+  rightResizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    rightSidebar.classList.add('resizing');
+    rightResizer.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+
+    const onMouseMove = (moveEvent) => {
+      const newWidth = window.innerWidth - moveEvent.clientX;
+      if (newWidth > 150 && newWidth < 400) {
+        rightSidebar.style.width = `${newWidth}px`;
+        rightSidebar.classList.remove('collapsed');
+      } else if (newWidth <= 150) {
+        rightSidebar.style.width = '0px';
+        rightSidebar.classList.add('collapsed');
+      }
+    };
+
+    const onMouseUp = () => {
+      rightSidebar.classList.remove('resizing');
+      rightResizer.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      if (editorView) {
+        editorView.requestMeasure();
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
+  // Toggle Left Sidebar function
+  function toggleLeftSidebar() {
+    const isCollapsed = leftSidebar.classList.contains('collapsed');
+    if (isCollapsed) {
+      leftSidebar.style.width = `${lastLeftWidth}px`;
+      leftSidebar.classList.remove('collapsed');
+    } else {
+      const currentWidth = leftSidebar.offsetWidth;
+      if (currentWidth > 0) {
+        lastLeftWidth = currentWidth;
+      }
+      leftSidebar.style.width = '0px';
+      leftSidebar.classList.add('collapsed');
+    }
+    if (editorView) {
+      setTimeout(() => editorView.requestMeasure(), 250);
+    }
+  }
+
+  // Toggle Right Sidebar function
+  function toggleRightSidebar() {
+    const isCollapsed = rightSidebar.classList.contains('collapsed');
+    if (isCollapsed) {
+      rightSidebar.style.width = `${lastRightWidth}px`;
+      rightSidebar.classList.remove('collapsed');
+    } else {
+      const currentWidth = rightSidebar.offsetWidth;
+      if (currentWidth > 0) {
+        lastRightWidth = currentWidth;
+      }
+      rightSidebar.style.width = '0px';
+      rightSidebar.classList.add('collapsed');
+    }
+    if (editorView) {
+      setTimeout(() => editorView.requestMeasure(), 250);
+    }
+  }
+
+  // Double click resizers to toggle collapse
+  leftResizer.addEventListener('dblclick', toggleLeftSidebar);
+  rightResizer.addEventListener('dblclick', toggleRightSidebar);
+
+  // Button clicks
+  if (btnCollapseLeft) btnCollapseLeft.addEventListener('click', toggleLeftSidebar);
+  if (btnToggleLeftSidebar) btnToggleLeftSidebar.addEventListener('click', toggleLeftSidebar);
+  if (btnCollapseRight) btnCollapseRight.addEventListener('click', toggleRightSidebar);
+  if (btnToggleRightSidebar) btnToggleRightSidebar.addEventListener('click', toggleRightSidebar);
 }
 
 // --- Custom Prompt & Confirm Modal Logic ---
