@@ -699,11 +699,186 @@ async function updateTagsView() {
   }
 }
 
+// Helper to nest headings hierarchically for Logseq-like outline styling in the preview
+function nestHeadings(htmlString) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlString, 'text/html');
+  const body = doc.body;
+  const children = Array.from(body.childNodes);
+  
+  const root = document.createElement('div');
+  root.className = 'markdown-root';
+  
+  let parentsStack = [root];
+  let levelsStack = [0];
+
+  children.forEach(node => {
+    // Text nodes or comments go straight to the current active parent container
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      parentsStack[parentsStack.length - 1].appendChild(node);
+      return;
+    }
+
+    const tagName = node.tagName.toLowerCase();
+    const headingMatch = tagName.match(/^h([1-6])$/);
+    
+    if (headingMatch) {
+      const level = parseInt(headingMatch[1], 10);
+      
+      // Keep popping until we find a parent that is a higher level heading (lower number)
+      while (levelsStack[levelsStack.length - 1] >= level) {
+        parentsStack.pop();
+        levelsStack.pop();
+      }
+      
+      const section = document.createElement('div');
+      section.className = `heading-section level-${level}`;
+      
+      parentsStack[parentsStack.length - 1].appendChild(section);
+      section.appendChild(node);
+      
+      parentsStack.push(section);
+      levelsStack.push(level);
+    } else {
+      parentsStack[parentsStack.length - 1].appendChild(node);
+    }
+  });
+  
+  return root.innerHTML;
+}
+
+// Preprocess markdown text to wrap indented normal lines and codeblocks into custom styled layout spans
+function preprocessMarkdown(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const processedLines = [];
+  
+  let currentHeadingSpaceIndent = 0;
+  let inCodeBlock = false;
+  let codeBlockIndentLevel = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Check if it's a fenced code block boundary
+    const isFencedCode = /^[ \t]*\`\`\`/.test(line);
+    
+    if (isFencedCode) {
+      if (!inCodeBlock) {
+        // Starting a fenced code block!
+        inCodeBlock = true;
+        
+        // Measure its space indentation
+        const match = line.match(/^([ \t]*)\`\`\`/);
+        const indentStr = match ? match[1] : '';
+        const spacesCount = indentStr.replace(/\t/g, '  ').length;
+        const indentLevel = Math.floor(spacesCount / 2);
+        
+        // Calculate relative indent level
+        const relativeLevel = indentLevel - currentHeadingSpaceIndent;
+        
+        if (relativeLevel > 0) {
+          codeBlockIndentLevel = relativeLevel;
+          // Emit the opening span
+          processedLines.push(`<span class="markdown-indent level-${relativeLevel}" style="display: block; margin-left: ${relativeLevel * 20}px; padding-left: 12px; border-left: 1.5px solid rgba(124, 58, 237, 0.15); margin-top: 4px; margin-bottom: 4px;">`);
+        } else {
+          codeBlockIndentLevel = 0;
+        }
+        
+        // Push the opening fence (with the spaces removed so marked parses it correctly as a fence at the root of the span)
+        processedLines.push('```' + line.slice(indentStr.length + 3));
+      } else {
+        // Ending the fenced code block!
+        inCodeBlock = false;
+        
+        // Push the closing fence (without spaces)
+        processedLines.push('```');
+        
+        // Close the span if we opened one
+        if (codeBlockIndentLevel > 0) {
+          processedLines.push('</span>');
+        }
+      }
+      continue;
+    }
+    
+    if (inCodeBlock) {
+      // We are inside a code block. We should strip the leading indentation of the code block
+      // so it sits nicely inside the block container without extra indentation inside the pre tag
+      let strippedLine = line;
+      if (codeBlockIndentLevel > 0) {
+        // Strip codeBlockIndentLevel * 2 spaces (or tabs) from the start of the line if present
+        const charsToStrip = codeBlockIndentLevel * 2;
+        let strippedCount = 0;
+        let j = 0;
+        while (j < line.length && strippedCount < charsToStrip) {
+          if (line[j] === ' ') {
+            strippedCount += 1;
+            j++;
+          } else if (line[j] === '\t') {
+            strippedCount += 2; // tab counts as 2 spaces
+            j++;
+          } else {
+            break; // non-space character
+          }
+        }
+        strippedLine = line.slice(j);
+      }
+      processedLines.push(strippedLine);
+      continue;
+    }
+    
+    // Normal line processing
+    if (!line.trim()) {
+      processedLines.push(line);
+      continue;
+    }
+    
+    // Check if it's a heading
+    const headingMatch = line.match(/^([ \t]*)#+\s/);
+    if (headingMatch) {
+      const indentStr = headingMatch[1];
+      const spacesCount = indentStr.replace(/\t/g, '  ').length;
+      currentHeadingSpaceIndent = Math.floor(spacesCount / 2);
+      processedLines.push(line);
+      continue;
+    }
+    
+    // Check if it's a list item or blockquote
+    const isListItem = /^[ \t]*([-*+]|\d+\.)\s/.test(line);
+    const isBlockquote = /^[ \t]*>/.test(line);
+    
+    if (isListItem || isBlockquote) {
+      processedLines.push(line);
+      continue;
+    }
+    
+    const match = line.match(/^([ \t]+)(.*)$/);
+    if (match) {
+      const indentStr = match[1];
+      const content = match[2];
+      const spacesCount = indentStr.replace(/\t/g, '  ').length;
+      const indentLevel = Math.floor(spacesCount / 2);
+      
+      const relativeLevel = indentLevel - currentHeadingSpaceIndent;
+      
+      if (relativeLevel > 0) {
+        processedLines.push(`<span class="markdown-indent level-${relativeLevel}" style="display: block; margin-left: ${relativeLevel * 20}px; padding-left: 12px; border-left: 1.5px solid rgba(124, 58, 237, 0.15); margin-top: 4px; margin-bottom: 4px;">${content}</span>`);
+        continue;
+      }
+    }
+    processedLines.push(line);
+  }
+  
+  return processedLines.join('\n');
+}
+
 // Update Markdown Preview
 async function updatePreview(markdownText) {
   try {
-    const html = await window.api.parseMarkdown(markdownText || '');
-    el.markdownPreview.innerHTML = html;
+    const preprocessed = preprocessMarkdown(markdownText || '');
+    const html = await window.api.parseMarkdown(preprocessed);
+    el.markdownPreview.innerHTML = nestHeadings(html);
   } catch (err) {
     el.markdownPreview.innerHTML = `<p style="color: red;">Error al procesar Markdown: ${err.message}</p>`;
   }

@@ -659,6 +659,25 @@ body {
   user-select: text; /* Allow user to select text in preview mode */
 }
 
+/* Logseq-like outline visual nesting for children headers and contents */
+.markdown-body .heading-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.markdown-body .heading-section.level-2,
+.markdown-body .heading-section.level-3,
+.markdown-body .heading-section.level-4,
+.markdown-body .heading-section.level-5,
+.markdown-body .heading-section.level-6 {
+  margin-left: 20px;
+  padding-left: 14px;
+  border-left: 1.5px solid rgba(124, 58, 237, 0.18); /* subtle violet guide line */
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+
 .markdown-body h1, .markdown-body h2, .markdown-body h3, 
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
   margin-top: 24px;

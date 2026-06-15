@@ -9,6 +9,16 @@ marked.setOptions({
   breaks: true,
 });
 
+// Disable indented code blocks to allow leading spaces for visual outline indentation
+marked.use({
+  tokenizer: {
+    code(src) {
+      return undefined;
+    }
+  }
+});
+
+
 
 let configFilePath = '';
 let config = {};

@@ -288,6 +288,8 @@ const asteriskKeymap = keymap.of([
   }
 ]);
 
+
+
 /**
  * Creates a new CodeMirror 6 editor instance.
  * @param {HTMLElement} parentElement — DOM element to mount the editor into.
@@ -347,6 +349,8 @@ export function createEditor(parentElement, { onChange } = {}) {
 
       // Change listener
       updateListener,
+
+
 
       // Tab size
       EditorState.tabSize.of(4),
