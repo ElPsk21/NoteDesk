@@ -1467,6 +1467,21 @@ body {
   font-size: 11px;
 }
 
+/* --- Live Preview Markdown Formatting Hiding --- */
+.cm-formatting-hidden {
+  display: inline-block;
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.cm-wikilink-preview {
+  color: #c084fc !important;
+  text-decoration: underline !important;
+  cursor: pointer;
+}
+
+
 
 
 

@@ -1320,6 +1320,34 @@ function setupEventListeners() {
     }
   });
 
+  // Intercept Wikilinks in Live Preview Editor (Ctrl/Cmd + Click)
+  el.codemirrorHost.addEventListener('click', async (e) => {
+    const linkEl = e.target.closest('.cm-wikilink-preview');
+    if (linkEl && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      
+      // Determine the target note name from the line text at the current selection position
+      if (editorView) {
+        const pos = editorView.state.selection.main.head;
+        const line = editorView.state.doc.lineAt(pos);
+        const text = line.text;
+        const cursorOffset = pos - line.from;
+        
+        const wikiRegex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+        let match;
+        while ((match = wikiRegex.exec(text)) !== null) {
+          const start = match.index;
+          const end = start + match[0].length;
+          if (cursorOffset >= start && cursorOffset <= end) {
+            const noteName = match[1].trim();
+            await handleWikilinkClick(noteName);
+            break;
+          }
+        }
+      }
+    }
+  });
+
   // Vault Rename
   el.vaultInfo.addEventListener('click', async () => {
     try {

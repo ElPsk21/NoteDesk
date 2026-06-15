@@ -3,8 +3,8 @@
  * Encapsulates all CM6 setup, theming, and API.
  */
 
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection } from '@codemirror/view';
-import { EditorState } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, Decoration, ViewPlugin } from '@codemirror/view';
+import { EditorState, RangeSetBuilder } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -318,6 +318,135 @@ const asteriskKeymap = keymap.of([
 ]);
 
 
+// --- Live Preview Markdown Extension ---
+// Hides Markdown markers (#, **, *, __, _, [[, ]], >) on inactive lines (without cursor)
+// to make the editor look like a live preview, showing raw markdown syntax only when active.
+const markdownLivePreview = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.decorations = this.getDecorations(view);
+  }
+
+  update(update) {
+    if (update.docChanged || update.selectionSet || update.viewportChanged) {
+      this.decorations = this.getDecorations(update.view);
+    }
+  }
+
+  getDecorations(view) {
+    const state = view.state;
+    const allDecos = [];
+    
+    // Get all line numbers that intersect with the current cursor/selections
+    const activeLines = new Set();
+    for (const range of state.selection.ranges) {
+      const startLine = state.doc.lineAt(range.from).number;
+      const endLine = state.doc.lineAt(range.to).number;
+      for (let l = startLine; l <= endLine; l++) {
+        activeLines.add(l);
+      }
+    }
+
+    // Process visible ranges in the viewport
+    for (const { from, to } of view.visibleRanges) {
+      let pos = from;
+      while (pos < to) {
+        const line = state.doc.lineAt(pos);
+        const isLineActive = activeLines.has(line.number);
+        
+        if (!isLineActive) {
+          const lineText = line.text;
+          const lineStart = line.from;
+          const covered = new Array(lineText.length).fill(false);
+
+          // Helper to add decoration if not already covered by another match
+          const addDeco = (start, end, val) => {
+            if (start >= end) return;
+            // Check if covered
+            for (let i = start; i < end; i++) {
+              if (covered[i]) return;
+            }
+            // Mark as covered
+            for (let i = start; i < end; i++) {
+              covered[i] = true;
+            }
+            allDecos.push({
+              from: lineStart + start,
+              to: lineStart + end,
+              value: val
+            });
+          };
+
+          // 1. Match Wikilinks: [[Note]] or [[Note|Label]]
+          const wikiRegex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+          let match;
+          while ((match = wikiRegex.exec(lineText)) !== null) {
+            const matchIndex = match.index;
+            const matchLen = match[0].length;
+            const notePart = match[1];
+            const labelPart = match[2];
+            
+            if (labelPart !== undefined) {
+              // Hide "[[Note|"
+              addDeco(matchIndex, matchIndex + 2 + notePart.length + 1, Decoration.mark({ class: 'cm-formatting-hidden' }));
+              // Style "Label" as link
+              addDeco(matchIndex + 2 + notePart.length + 1, matchIndex + matchLen - 2, Decoration.mark({ class: 'cm-wikilink-preview' }));
+              // Hide "]]"
+              addDeco(matchIndex + matchLen - 2, matchIndex + matchLen, Decoration.mark({ class: 'cm-formatting-hidden' }));
+            } else {
+              // Hide "[["
+              addDeco(matchIndex, matchIndex + 2, Decoration.mark({ class: 'cm-formatting-hidden' }));
+              // Style "Note" as link
+              addDeco(matchIndex + 2, matchIndex + matchLen - 2, Decoration.mark({ class: 'cm-wikilink-preview' }));
+              // Hide "]]"
+              addDeco(matchIndex + matchLen - 2, matchIndex + matchLen, Decoration.mark({ class: 'cm-formatting-hidden' }));
+            }
+          }
+
+          // 2. Match Headers: e.g., "# " at the beginning of the line
+          const headerMatch = lineText.match(/^(#{1,6}\s)/);
+          if (headerMatch) {
+            const hashesLen = headerMatch[1].length - 1; // Exclude space
+            if (hashesLen > 0) {
+              addDeco(0, hashesLen, Decoration.mark({ class: 'cm-formatting-hidden' }));
+            }
+          }
+
+          // 3. Match Bold and Italic: **, *, __, _
+          const formatRegex = /(\*\*|\*|__|_)/g;
+          let fmtMatch;
+          while ((fmtMatch = formatRegex.exec(lineText)) !== null) {
+            const start = fmtMatch.index;
+            const end = start + fmtMatch[0].length;
+            addDeco(start, end, Decoration.mark({ class: 'cm-formatting-hidden' }));
+          }
+
+          // 4. Match Blockquotes: e.g., "> " at the beginning of the line
+          const quoteMatch = lineText.match(/^(\s*>\s*)/);
+          if (quoteMatch) {
+            const markerIndex = quoteMatch[1].indexOf('>');
+            if (markerIndex !== -1) {
+              addDeco(markerIndex, markerIndex + 1, Decoration.mark({ class: 'cm-formatting-hidden' }));
+            }
+          }
+        }
+        
+        pos = line.to + 1;
+      }
+    }
+
+    // Sort disjoint decorations sequentially
+    allDecos.sort((a, b) => a.from - b.from);
+    
+    // Build RangeSet
+    const builder = new RangeSetBuilder();
+    for (const deco of allDecos) {
+      builder.add(deco.from, deco.to, deco.value);
+    }
+    return builder.finish();
+  }
+}, {
+  decorations: v => v.decorations
+});
 
 /**
  * Creates a new CodeMirror 6 editor instance.
@@ -447,6 +576,9 @@ export function createEditor(parentElement, { onChange, getNoteNames, onCreateNo
 
       // Change listener
       updateListener,
+
+      // Live Preview Hide Formatting
+      markdownLivePreview,
 
 
 
