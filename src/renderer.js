@@ -18,6 +18,20 @@ let activeTabPath = null;
 let rightSidebarTab = 'outline'; // 'outline' or 'tags'
 let collapsedTags = new Set(); // Set of collapsed tag strings
 
+let lastLeftWidth = 260;
+let lastRightWidth = 250;
+
+function ensureLeftSidebarExpanded() {
+  const leftSidebar = document.getElementById('left-sidebar');
+  if (leftSidebar && leftSidebar.classList.contains('collapsed')) {
+    leftSidebar.style.width = `${lastLeftWidth}px`;
+    leftSidebar.classList.remove('collapsed');
+    if (editorView) {
+      setTimeout(() => editorView.requestMeasure(), 250);
+    }
+  }
+}
+
 // --- Path Comparison Helpers ---
 function isPathEqual(pathA, pathB) {
   if (!pathA || !pathB) return false;
@@ -591,6 +605,9 @@ async function closeTab(filePath) {
   } else {
     renderTabs();
   }
+  if (openTabs.length === 0) {
+    ensureLeftSidebarExpanded();
+  }
 }
 
 // --- Section 3 Outline (Table of Contents) Logic ---
@@ -1008,6 +1025,9 @@ async function handleDeleteNode(itemPath, itemName) {
     if (rightSidebarTab === 'tags') {
       updateTagsView();
     }
+    if (openTabs.length === 0) {
+      ensureLeftSidebarExpanded();
+    }
   } catch (err) {
     console.error(err);
     showNotification(err.message, 'error');
@@ -1151,6 +1171,7 @@ function setupEventListeners() {
         if (rightSidebarTab === 'tags') {
           updateTagsView();
         }
+        ensureLeftSidebarExpanded();
         showNotification('Nueva bóveda abierta correctamente.', 'success');
       }
     } catch (err) {
@@ -1251,9 +1272,6 @@ function setupEventListeners() {
   const btnToggleLeftSidebar = document.getElementById('btn-toggle-left-sidebar');
   const btnToggleRightSidebar = document.getElementById('btn-toggle-right-sidebar');
 
-  let lastLeftWidth = 260;
-  let lastRightWidth = 250;
-
   // Drag-to-resize left sidebar
   leftResizer.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -1267,6 +1285,11 @@ function setupEventListeners() {
         leftSidebar.style.width = `${newWidth}px`;
         leftSidebar.classList.remove('collapsed');
       } else if (newWidth <= 150) {
+        if (openTabs.length === 0) {
+          leftSidebar.style.width = '150px';
+          leftSidebar.classList.remove('collapsed');
+          return;
+        }
         leftSidebar.style.width = '0px';
         leftSidebar.classList.add('collapsed');
       }
@@ -1327,6 +1350,10 @@ function setupEventListeners() {
       leftSidebar.style.width = `${lastLeftWidth}px`;
       leftSidebar.classList.remove('collapsed');
     } else {
+      if (openTabs.length === 0) {
+        showNotification('No se puede contraer el panel izquierdo si no hay páginas abiertas.', 'warning');
+        return;
+      }
       const currentWidth = leftSidebar.offsetWidth;
       if (currentWidth > 0) {
         lastLeftWidth = currentWidth;

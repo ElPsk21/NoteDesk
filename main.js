@@ -88,6 +88,9 @@ function createWindow() {
     },
   });
 
+  // Hide the default application menu bar (File, Edit, View, Window...)
+  mainWindow.setMenu(null);
+
   // Load the index.html from the src directory
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
 
