@@ -23,6 +23,40 @@ let splitPercentage = 50; // Current percentage width of the editor container in
 let lastLeftWidth = 260;
 let lastRightWidth = 250;
 
+function convertToLogseqFormat(markdownText) {
+  if (!markdownText) return '- ';
+  const trimmedText = markdownText.trim();
+  if (!trimmedText) return '- ';
+
+  const lines = markdownText.split(/\r?\n/);
+  let bulletLines = 0;
+  let nonEmptyLines = 0;
+  for (const line of lines) {
+    if (line.trim()) {
+      nonEmptyLines++;
+      if (/^\s*([-*+]|\d+\.)\s/.test(line)) {
+        bulletLines++;
+      }
+    }
+  }
+
+  if (nonEmptyLines === 0 || (bulletLines / nonEmptyLines) > 0.5) {
+    return markdownText;
+  }
+
+  const converted = lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return '';
+    if (/^\s*([-*+]|\d+\.)\s/.test(line)) return line;
+
+    const matchIndent = line.match(/^([ \t]*)/);
+    const indent = matchIndent ? matchIndent[1] : '';
+    return `${indent}- ${trimmed}`;
+  });
+
+  return converted.join('\n');
+}
+
 function ensureLeftSidebarExpanded() {
   const leftSidebar = document.getElementById('left-sidebar');
   if (leftSidebar && leftSidebar.classList.contains('collapsed')) {
@@ -133,6 +167,7 @@ const el = {
   selectEditorMarkColor: document.getElementById('select-editor-mark-color'),
   selectUiFont: document.getElementById('select-ui-font'),
   selectEditorFont: document.getElementById('select-editor-font'),
+  selectEditorLineHeight: document.getElementById('select-editor-line-height'),
   
   // Modals
   modalContainer: document.getElementById('modal-container'),
@@ -497,7 +532,8 @@ async function openNote(filePath) {
   }
 
   try {
-    const content = await window.api.readNote(filePath);
+    let content = await window.api.readNote(filePath);
+    content = convertToLogseqFormat(content);
     currentFileContent = content;
     isUnsaved = false;
     
@@ -644,7 +680,8 @@ async function switchTab(filePath) {
   currentFilePath = filePath;
   
   try {
-    const content = await window.api.readNote(filePath);
+    let content = await window.api.readNote(filePath);
+    content = convertToLogseqFormat(content);
     currentFileContent = content;
     isUnsaved = false;
 
@@ -1810,6 +1847,12 @@ function setupEventListeners() {
     applyEditorFont(editorFont);
     await window.api.saveSettings({ editorFont });
   });
+
+  el.selectEditorLineHeight.addEventListener('change', async () => {
+    const editorLineHeight = el.selectEditorLineHeight.value;
+    applyEditorLineHeight(editorLineHeight);
+    await window.api.saveSettings({ editorLineHeight });
+  });
 }
 
 // --- Custom Prompt & Confirm Modal Logic ---
@@ -1922,6 +1965,10 @@ async function initSettings() {
     applyEditorFont(settings.editorFont || 'Fira Code');
     el.selectEditorFont.value = settings.editorFont || 'Fira Code';
     
+    // Apply saved line height
+    applyEditorLineHeight(settings.editorLineHeight || '1.3');
+    el.selectEditorLineHeight.value = settings.editorLineHeight || '1.3';
+    
     // Start with settings panel collapsed
     el.settingsChevron.classList.add('collapsed');
   } catch (err) {
@@ -2003,6 +2050,13 @@ function applyEditorFont(fontName) {
     if (cmContent) {
       cmContent.style.fontFamily = `'${fontName}', 'Fira Code', 'JetBrains Mono', 'Courier New', Courier, monospace`;
     }
+  }
+}
+
+function applyEditorLineHeight(lineHeight) {
+  document.documentElement.style.setProperty('--editor-line-height', lineHeight);
+  if (editorView) {
+    editorView.requestMeasure();
   }
 }
 

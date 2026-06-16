@@ -231,7 +231,7 @@ ipcMain.handle('create-note', async (event, parentFolderPath, fileName) => {
     counter++;
   }
 
-  const defaultContent = `# ${path.basename(targetPath, '.md')}\n\n`;
+  const defaultContent = `- # ${path.basename(targetPath, '.md')}\n\n`;
   await fs.promises.writeFile(targetPath, defaultContent, 'utf-8');
   return targetPath;
 });
@@ -577,6 +577,7 @@ ipcMain.handle('get-settings', async () => {
     highlightColor: config.highlightColor || 'purple',
     editorTextColor: config.editorTextColor || 'default',
     editorMarkColor: config.editorMarkColor || 'default',
+    editorLineHeight: config.editorLineHeight || '1.3',
   };
 });
 
@@ -587,6 +588,7 @@ ipcMain.handle('save-settings', async (event, settings) => {
   if (settings.highlightColor) config.highlightColor = settings.highlightColor;
   if (settings.editorTextColor) config.editorTextColor = settings.editorTextColor;
   if (settings.editorMarkColor) config.editorMarkColor = settings.editorMarkColor;
+  if (settings.editorLineHeight) config.editorLineHeight = settings.editorLineHeight;
   saveConfig(config);
   return true;
 });

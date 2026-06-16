@@ -6,7 +6,7 @@
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, Decoration, ViewPlugin } from '@codemirror/view';
 import { EditorState, RangeSetBuilder, Prec } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { markdown, markdownLanguage, markdownKeymap } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap, HighlightStyle } from '@codemirror/language';
 import { closeBrackets, closeBracketsKeymap, autocompletion } from '@codemirror/autocomplete';
@@ -24,7 +24,7 @@ const noteDeskTheme = EditorView.theme({
   '.cm-scroller': {
     overflow: 'auto',
     fontFamily: 'var(--editor-font, "Fira Code", monospace)',
-    lineHeight: '1.6',
+    lineHeight: 'var(--editor-line-height, 1.3)',
     padding: '8px 0',
   },
   '.cm-content': {
@@ -352,11 +352,37 @@ const markdownLivePreview = ViewPlugin.fromClass(class {
       let pos = from;
       while (pos < to) {
         const line = state.doc.lineAt(pos);
+        const lineText = line.text;
+        const lineStart = line.from;
         const isLineActive = activeLines.has(line.number);
+
+        // Draw indentation guide lines for list items (LogSeq style)
+        const spaceMatch = lineText.match(/^([ \t]+)-\s/);
+        if (spaceMatch) {
+          const spaces = spaceMatch[1].replace(/\t/g, '    ');
+          const numSteps = Math.floor(spaces.length / 4);
+          for (let i = 0; i < numSteps; i++) {
+            let colCount = 0;
+            let charIdx = 0;
+            while (charIdx < lineText.length && colCount < i * 4) {
+              if (lineText[charIdx] === '\t') {
+                colCount += 4;
+              } else {
+                colCount += 1;
+              }
+              charIdx++;
+            }
+            if (colCount === i * 4 && charIdx < lineText.length) {
+              allDecos.push({
+                from: lineStart + charIdx,
+                to: lineStart + charIdx + 1,
+                value: Decoration.mark({ class: `cm-indent-guide cm-indent-guide-${i + 1}` })
+              });
+            }
+          }
+        }
         
         if (!isLineActive) {
-          const lineText = line.text;
-          const lineStart = line.from;
           const covered = new Array(lineText.length).fill(false);
 
           // Helper to add decoration if not already covered by another match
@@ -377,7 +403,17 @@ const markdownLivePreview = ViewPlugin.fromClass(class {
             });
           };
 
-          // 1. Match Wikilinks: [[Note]] or [[Note|Label]]
+          // 1. Match LogSeq Bullet Marker: "- " (with optional indentation)
+          const bulletMatch = lineText.match(/^([ \t]*)(-\s)/);
+          if (bulletMatch) {
+            const spacesLen = bulletMatch[1].length;
+            // Hide the hyphen '-'
+            addDeco(spacesLen, spacesLen + 1, Decoration.mark({ class: 'cm-formatting-hidden' }));
+            // Style the space ' ' as the bullet placeholder
+            addDeco(spacesLen + 1, spacesLen + 2, Decoration.mark({ class: 'cm-list-bullet' }));
+          }
+
+          // 2. Match Wikilinks: [[Note]] or [[Note|Label]]
           const wikiRegex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
           let match;
           while ((match = wikiRegex.exec(lineText)) !== null) {
@@ -387,32 +423,32 @@ const markdownLivePreview = ViewPlugin.fromClass(class {
             const labelPart = match[2];
             
             if (labelPart !== undefined) {
-              // Hide "[[Note|"
               addDeco(matchIndex, matchIndex + 2 + notePart.length + 1, Decoration.mark({ class: 'cm-formatting-hidden' }));
-              // Style "Label" as link
               addDeco(matchIndex + 2 + notePart.length + 1, matchIndex + matchLen - 2, Decoration.mark({ class: 'cm-wikilink-preview' }));
-              // Hide "]]"
               addDeco(matchIndex + matchLen - 2, matchIndex + matchLen, Decoration.mark({ class: 'cm-formatting-hidden' }));
             } else {
-              // Hide "[["
               addDeco(matchIndex, matchIndex + 2, Decoration.mark({ class: 'cm-formatting-hidden' }));
-              // Style "Note" as link
               addDeco(matchIndex + 2, matchIndex + matchLen - 2, Decoration.mark({ class: 'cm-wikilink-preview' }));
-              // Hide "]]"
               addDeco(matchIndex + matchLen - 2, matchIndex + matchLen, Decoration.mark({ class: 'cm-formatting-hidden' }));
             }
           }
 
-          // 2. Match Headers: e.g., "# " at the beginning of the line
-          const headerMatch = lineText.match(/^(#{1,6}\s)/);
+          // 3. Match Headers: e.g., "# " after bullet prefix
+          const headerMatch = lineText.match(/^([ \t]*-\s+)(#{1,6}\s)/);
           if (headerMatch) {
-            const hashesLen = headerMatch[1].length - 1; // Exclude space
-            if (hashesLen > 0) {
+            const prefixLen = headerMatch[1].length;
+            const hashesLen = headerMatch[2].length - 1; // Exclude space
+            addDeco(prefixLen, prefixLen + hashesLen, Decoration.mark({ class: 'cm-formatting-hidden' }));
+          } else {
+            // Also fallback match headers without bullet (just in case)
+            const headerMatchPlain = lineText.match(/^(#{1,6}\s)/);
+            if (headerMatchPlain) {
+              const hashesLen = headerMatchPlain[1].length - 1;
               addDeco(0, hashesLen, Decoration.mark({ class: 'cm-formatting-hidden' }));
             }
           }
 
-          // 3. Match Bold and Italic: **, *, __, _
+          // 4. Match Bold and Italic: **, *, __, _
           const formatRegex = /(\*\*|\*|__|_)/g;
           let fmtMatch;
           while ((fmtMatch = formatRegex.exec(lineText)) !== null) {
@@ -421,12 +457,13 @@ const markdownLivePreview = ViewPlugin.fromClass(class {
             addDeco(start, end, Decoration.mark({ class: 'cm-formatting-hidden' }));
           }
 
-          // 4. Match Blockquotes: e.g., "> " at the beginning of the line
-          const quoteMatch = lineText.match(/^(\s*>\s*)/);
+          // 5. Match Blockquotes: e.g., "> " after bullet prefix or at start
+          const quoteMatch = lineText.match(/^([ \t]*-\s+)?(>\s*)/);
           if (quoteMatch) {
-            const markerIndex = quoteMatch[1].indexOf('>');
+            const prefixLen = quoteMatch[1] ? quoteMatch[1].length : 0;
+            const markerIndex = quoteMatch[2].indexOf('>');
             if (markerIndex !== -1) {
-              addDeco(markerIndex, markerIndex + 1, Decoration.mark({ class: 'cm-formatting-hidden' }));
+              addDeco(prefixLen + markerIndex, prefixLen + markerIndex + 1, Decoration.mark({ class: 'cm-formatting-hidden' }));
             }
           }
         }
@@ -448,6 +485,106 @@ const markdownLivePreview = ViewPlugin.fromClass(class {
 }, {
   decorations: v => v.decorations
 });
+
+// --- Custom Indentation Commands for Lists (LogSeq Style) ---
+function indentListCommand(view) {
+  const { state } = view;
+  let changes = [];
+  const processedLines = new Set();
+  
+  for (const range of state.selection.ranges) {
+    const startLine = state.doc.lineAt(range.from).number;
+    const endLine = state.doc.lineAt(range.to).number;
+    for (let l = startLine; l <= endLine; l++) {
+      if (processedLines.has(l)) continue;
+      processedLines.add(l);
+    }
+  }
+
+  for (const lineNum of processedLines) {
+    const line = state.doc.line(lineNum);
+    const trimmed = line.text.trim();
+    if (!trimmed) {
+      // If line is empty, turn it into an indented bullet
+      const spaceMatch = line.text.match(/^([ \t]*)/);
+      const spaces = spaceMatch ? spaceMatch[1] : '';
+      changes.push({
+        from: line.from,
+        to: line.to,
+        insert: spaces + '    - '
+      });
+    } else if (!/^\s*([-*+]|\d+\.)\s/.test(line.text)) {
+      // If no bullet, prepend and indent
+      const spaceMatch = line.text.match(/^([ \t]*)/);
+      const spaces = spaceMatch ? spaceMatch[1] : '';
+      const content = line.text.slice(spaces.length);
+      changes.push({
+        from: line.from,
+        to: line.to,
+        insert: spaces + '    - ' + content
+      });
+    } else {
+      // Already a list item, just indent 4 spaces
+      changes.push({
+        from: line.from,
+        insert: '    '
+      });
+    }
+  }
+
+  view.dispatch({
+    changes
+  });
+  return true;
+}
+
+function outdentListCommand(view) {
+  const { state } = view;
+  let changes = [];
+  const processedLines = new Set();
+
+  for (const range of state.selection.ranges) {
+    const startLine = state.doc.lineAt(range.from).number;
+    const endLine = state.doc.lineAt(range.to).number;
+    for (let l = startLine; l <= endLine; l++) {
+      if (processedLines.has(l)) continue;
+      processedLines.add(l);
+    }
+  }
+
+  for (const lineNum of processedLines) {
+    const line = state.doc.line(lineNum);
+    const spaceMatch = line.text.match(/^([ \t]*)/);
+    if (spaceMatch) {
+      const spaces = spaceMatch[1];
+      if (spaces.length > 0) {
+        let toRemove = 0;
+        let charCount = 0;
+        for (let i = 0; i < spaces.length && charCount < 4; i++) {
+          if (spaces[i] === '\t') {
+            toRemove++;
+            charCount += 4;
+          } else {
+            toRemove++;
+            charCount++;
+          }
+        }
+        if (toRemove > 0) {
+          changes.push({
+            from: line.from,
+            to: line.from + toRemove,
+            insert: ''
+          });
+        }
+      }
+    }
+  }
+
+  if (changes.length > 0) {
+    view.dispatch({ changes });
+  }
+  return true;
+}
 
 /**
  * Creates a new CodeMirror 6 editor instance.
@@ -563,6 +700,9 @@ export function createEditor(parentElement, { onChange, getNoteNames, onCreateNo
 
       // Keymaps
       keymap.of([
+        { key: 'Tab', run: indentListCommand },
+        { key: 'Shift-Tab', run: outdentListCommand },
+        ...markdownKeymap,
         ...closeBracketsKeymap,
         ...defaultKeymap,
         ...historyKeymap,
