@@ -123,6 +123,17 @@ const el = {
   tagsView: document.getElementById('tags-view'),
   backlinksView: document.getElementById('backlinks-view'),
   
+  // Settings Panel
+  settingsToggle: document.getElementById('settings-toggle'),
+  settingsBody: document.getElementById('settings-body'),
+  settingsChevron: document.getElementById('settings-chevron'),
+  selectTheme: document.getElementById('select-theme'),
+  selectHighlightColor: document.getElementById('select-highlight-color'),
+  selectEditorTextColor: document.getElementById('select-editor-text-color'),
+  selectEditorMarkColor: document.getElementById('select-editor-mark-color'),
+  selectUiFont: document.getElementById('select-ui-font'),
+  selectEditorFont: document.getElementById('select-editor-font'),
+  
   // Modals
   modalContainer: document.getElementById('modal-container'),
   modalTitle: document.getElementById('modal-title'),
@@ -161,6 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   setupEventListeners();
+  await initSettings();
   await loadVaultInfo();
   await refreshFileExplorer();
 });
@@ -1750,6 +1762,54 @@ function setupEventListeners() {
   if (btnToggleLeftSidebar) btnToggleLeftSidebar.addEventListener('click', toggleLeftSidebar);
   if (btnCollapseRight) btnCollapseRight.addEventListener('click', toggleRightSidebar);
   if (btnToggleRightSidebar) btnToggleRightSidebar.addEventListener('click', toggleRightSidebar);
+
+  // --- Settings Panel ---
+  el.settingsToggle.addEventListener('click', () => {
+    const isHidden = el.settingsBody.classList.contains('hidden');
+    if (isHidden) {
+      el.settingsBody.classList.remove('hidden');
+      el.settingsChevron.classList.remove('collapsed');
+    } else {
+      el.settingsBody.classList.add('hidden');
+      el.settingsChevron.classList.add('collapsed');
+    }
+  });
+
+  el.selectTheme.addEventListener('change', async () => {
+    const theme = el.selectTheme.value;
+    applyTheme(theme);
+    await window.api.saveSettings({ theme });
+  });
+
+  el.selectHighlightColor.addEventListener('change', async () => {
+    const highlightColor = el.selectHighlightColor.value;
+    applyHighlightColor(highlightColor);
+    await window.api.saveSettings({ highlightColor });
+  });
+
+  el.selectEditorTextColor.addEventListener('change', async () => {
+    const editorTextColor = el.selectEditorTextColor.value;
+    applyEditorTextColor(editorTextColor);
+    await window.api.saveSettings({ editorTextColor });
+  });
+
+  el.selectEditorMarkColor.addEventListener('change', async () => {
+    const editorMarkColor = el.selectEditorMarkColor.value;
+    applyEditorMarkColor(editorMarkColor);
+    await window.api.saveSettings({ editorMarkColor });
+  });
+
+  el.selectUiFont.addEventListener('change', async () => {
+    const uiFont = el.selectUiFont.value;
+    applyUiFont(uiFont);
+    await window.api.saveSettings({ uiFont });
+  });
+
+  el.selectEditorFont.addEventListener('change', async () => {
+    const editorFont = el.selectEditorFont.value;
+    applyEditorFont(editorFont);
+    await window.api.saveSettings({ editorFont });
+  });
 }
 
 // --- Custom Prompt & Confirm Modal Logic ---
@@ -1831,6 +1891,119 @@ function showConfirmModal(title, message) {
     el.btnModalConfirm.addEventListener('click', onConfirm);
     el.btnModalCancel.addEventListener('click', onCancel);
   });
+}
+
+// --- Settings Functions ---
+async function initSettings() {
+  try {
+    const settings = await window.api.getSettings();
+    
+    // Apply saved theme
+    applyTheme(settings.theme || 'dark');
+    el.selectTheme.value = settings.theme || 'dark';
+    
+    // Apply saved highlight color
+    applyHighlightColor(settings.highlightColor || 'purple');
+    el.selectHighlightColor.value = settings.highlightColor || 'purple';
+    
+    // Apply saved editor text color
+    applyEditorTextColor(settings.editorTextColor || 'default');
+    el.selectEditorTextColor.value = settings.editorTextColor || 'default';
+    
+    // Apply saved editor mark color
+    applyEditorMarkColor(settings.editorMarkColor || 'default');
+    el.selectEditorMarkColor.value = settings.editorMarkColor || 'default';
+    
+    // Apply saved UI font
+    applyUiFont(settings.uiFont || 'Inter');
+    el.selectUiFont.value = settings.uiFont || 'Inter';
+    
+    // Apply saved editor font
+    applyEditorFont(settings.editorFont || 'Fira Code');
+    el.selectEditorFont.value = settings.editorFont || 'Fira Code';
+    
+    // Start with settings panel collapsed
+    el.settingsChevron.classList.add('collapsed');
+  } catch (err) {
+    console.error('Error loading settings:', err);
+  }
+}
+
+function applyTheme(theme) {
+  if (theme === 'dark') {
+    document.body.removeAttribute('data-theme');
+  } else {
+    document.body.setAttribute('data-theme', theme);
+  }
+}
+
+function applyHighlightColor(colorName) {
+  const colors = {
+    purple: { hex: '#7c3aed', hover: '#9055f2', accentText: '#a78bfa', link: '#818cf8', rgb: '124, 58, 237' },
+    blue: { hex: '#2563eb', hover: '#3b82f6', accentText: '#60a5fa', link: '#60a5fa', rgb: '37, 99, 235' },
+    green: { hex: '#16a34a', hover: '#22c55e', accentText: '#4ade80', link: '#4ade80', rgb: '22, 163, 74' },
+    orange: { hex: '#ea580c', hover: '#f97316', accentText: '#fb923c', link: '#fb923c', rgb: '234, 88, 12' },
+    red: { hex: '#dc2626', hover: '#ef4444', accentText: '#f87171', link: '#f87171', rgb: '220, 38, 38' }
+  };
+  const color = colors[colorName] || colors.purple;
+  const root = document.documentElement;
+  root.style.setProperty('--accent-color', color.hex);
+  root.style.setProperty('--border-focus', color.hex);
+  root.style.setProperty('--accent-hover', color.hover);
+  root.style.setProperty('--text-accent', color.accentText);
+  root.style.setProperty('--text-link', color.link);
+  root.style.setProperty('--accent-color-rgb', color.rgb);
+}
+
+function applyEditorTextColor(colorVal) {
+  const root = document.documentElement;
+  if (colorVal === 'default') {
+    root.style.removeProperty('--editor-heading-color');
+  } else {
+    const colorMap = {
+      orange: '#d19a66',
+      purple: '#c084fc',
+      blue: '#60a5fa',
+      green: '#34d399',
+      white: '#dcddde'
+    };
+    root.style.setProperty('--editor-heading-color', colorMap[colorVal] || '#d19a66');
+  }
+}
+
+function applyEditorMarkColor(colorVal) {
+  const root = document.documentElement;
+  if (colorVal === 'default') {
+    root.style.removeProperty('--editor-mark-color');
+  } else {
+    const colorMap = {
+      green: '#34d399',
+      purple: '#c084fc',
+      blue: '#60a5fa',
+      orange: '#d19a66',
+      gray: '#6b7280'
+    };
+    root.style.setProperty('--editor-mark-color', colorMap[colorVal] || '#34d399');
+  }
+}
+
+function applyUiFont(fontName) {
+  const fontStack = fontName === 'system-ui' 
+    ? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+    : `'${fontName}', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  document.documentElement.style.setProperty('--font-ui', fontStack);
+}
+
+function applyEditorFont(fontName) {
+  document.documentElement.style.setProperty('--editor-font', `'${fontName}', 'Fira Code', 'JetBrains Mono', 'Courier New', Courier, monospace`);
+  document.documentElement.style.setProperty('--font-mono', `'${fontName}', 'Fira Code', 'Courier New', Courier, monospace`);
+  // Also update CodeMirror editor if active
+  if (editorView) {
+    const cmContent = editorView.dom.querySelector('.cm-content');
+    if (cmContent) {
+      cmContent.style.fontFamily = `'${fontName}', 'Fira Code', 'JetBrains Mono', 'Courier New', Courier, monospace`;
+    }
+  }
 }
 
 function showNotification(message, type = 'success', duration = 4000) {

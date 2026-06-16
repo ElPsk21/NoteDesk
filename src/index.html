@@ -10,7 +10,7 @@
   <!-- Google Fonts: Inter (UI) and JetBrains Mono (Code blocks) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fira+Code:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fira+Code:wght@300;400;500;600;700&family=Roboto:wght@300;400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-container">
@@ -76,6 +76,81 @@
       <!-- File Explorer Tree -->
       <div class="file-explorer" id="file-explorer">
         <!-- Tree items will be dynamically generated here -->
+      </div>
+
+      <!-- Settings Panel -->
+      <div class="sidebar-settings" id="sidebar-settings">
+        <div class="settings-toggle" id="settings-toggle">
+          <div class="settings-toggle-left">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="settings-icon">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Ajustes</span>
+          </div>
+          <svg class="settings-chevron" id="settings-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="settings-body hidden" id="settings-body">
+          <div class="settings-group">
+            <label class="settings-label">Tema</label>
+            <select id="select-theme" class="settings-select">
+              <option value="dark">Oscuro</option>
+              <option value="light">Claro</option>
+              <option value="midnight">Medianoche</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label class="settings-label">Color de Resaltado</label>
+            <select id="select-highlight-color" class="settings-select">
+              <option value="purple">Violeta</option>
+              <option value="blue">Azul</option>
+              <option value="green">Verde</option>
+              <option value="orange">Naranja</option>
+              <option value="red">Rojo</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label class="settings-label">Color de Texto (Editor)</label>
+            <select id="select-editor-text-color" class="settings-select">
+              <option value="default">Por Defecto</option>
+              <option value="orange">Naranja/Coral</option>
+              <option value="purple">Violeta</option>
+              <option value="blue">Azul</option>
+              <option value="green">Verde</option>
+              <option value="white">Blanco/Gris</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label class="settings-label">Color de Símbolos (#)</label>
+            <select id="select-editor-mark-color" class="settings-select">
+              <option value="default">Por Defecto</option>
+              <option value="green">Verde</option>
+              <option value="purple">Violeta</option>
+              <option value="blue">Azul</option>
+              <option value="orange">Naranja</option>
+              <option value="gray">Gris</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label class="settings-label">Fuente de Interfaz</label>
+            <select id="select-ui-font" class="settings-select">
+              <option value="Inter">Inter</option>
+              <option value="Roboto">Roboto</option>
+              <option value="Outfit">Outfit</option>
+              <option value="system-ui">Sistema</option>
+            </select>
+          </div>
+          <div class="settings-group">
+            <label class="settings-label">Fuente del Editor</label>
+            <select id="select-editor-font" class="settings-select">
+              <option value="Fira Code">Fira Code</option>
+              <option value="JetBrains Mono">JetBrains Mono</option>
+              <option value="Courier New">Courier New</option>
+            </select>
+          </div>
+        </div>
       </div>
     </aside>
     <div class="resizer left-resizer" id="left-resizer"></div>

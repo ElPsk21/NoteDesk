@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('api', {
   openVaultDialog: () => ipcRenderer.invoke('open-vault-dialog'),
   getVaultTags: () => ipcRenderer.invoke('get-vault-tags'),
   getBacklinks: (filePath) => ipcRenderer.invoke('get-backlinks', filePath),
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
 });
 
 

@@ -4,7 +4,7 @@
  */
 
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection, Decoration, ViewPlugin } from '@codemirror/view';
-import { EditorState, RangeSetBuilder } from '@codemirror/state';
+import { EditorState, RangeSetBuilder, Prec } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
@@ -30,16 +30,17 @@ const noteDeskTheme = EditorView.theme({
   '.cm-content': {
     padding: '20px 30px 20px 10px',
     caretColor: 'var(--accent-color, #7c3aed)',
+    color: 'var(--editor-heading-color, inherit)',
   },
   '.cm-cursor, .cm-dropCursor': {
     borderLeftColor: 'var(--accent-color, #7c3aed)',
     borderLeftWidth: '2px',
   },
   '.cm-activeLine': {
-    backgroundColor: 'rgba(124, 58, 237, 0.06)',
+    backgroundColor: 'rgba(var(--accent-color-rgb, 124, 58, 237), 0.06)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'rgba(124, 58, 237, 0.08)',
+    backgroundColor: 'rgba(var(--accent-color-rgb, 124, 58, 237), 0.08)',
     color: 'var(--accent-color, #7c3aed)',
   },
   '.cm-gutters': {
@@ -63,17 +64,17 @@ const noteDeskTheme = EditorView.theme({
     color: 'var(--accent-color, #7c3aed)',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'rgba(124, 58, 237, 0.20) !important',
+    backgroundColor: 'rgba(var(--accent-color-rgb, 124, 58, 237), 0.20) !important',
   },
   '.cm-selectionMatch': {
-    backgroundColor: 'rgba(124, 58, 237, 0.12)',
+    backgroundColor: 'rgba(var(--accent-color-rgb, 124, 58, 237), 0.12)',
   },
   '&.cm-focused': {
     outline: 'none',
   },
   '.cm-matchingBracket': {
-    backgroundColor: 'rgba(124, 58, 237, 0.25)',
-    outline: '1px solid rgba(124, 58, 237, 0.4)',
+    backgroundColor: 'rgba(var(--accent-color-rgb, 124, 58, 237), 0.25)',
+    outline: '1px solid rgba(var(--accent-color-rgb, 124, 58, 237), 0.4)',
   },
   '.cm-tooltip': {
     backgroundColor: 'var(--bg-tertiary, #202020)',
@@ -118,12 +119,12 @@ const noteDeskTheme = EditorView.theme({
 // --- Custom Markdown Syntax Highlighting ---
 const noteDeskHighlighting = HighlightStyle.define([
   // Headings — gradient of accent tones
-  { tag: tags.heading1, color: '#c084fc', fontWeight: '700', fontSize: '1.6em' },
-  { tag: tags.heading2, color: '#a78bfa', fontWeight: '600', fontSize: '1.4em' },
-  { tag: tags.heading3, color: '#8b5cf6', fontWeight: '600', fontSize: '1.2em' },
-  { tag: tags.heading4, color: '#7c3aed', fontWeight: '500' },
-  { tag: tags.heading5, color: '#6d28d9', fontWeight: '500' },
-  { tag: tags.heading6, color: '#5b21b6', fontWeight: '500' },
+  { tag: tags.heading1, color: 'var(--editor-heading-color, #c084fc)', fontWeight: '700', fontSize: '1.6em' },
+  { tag: tags.heading2, color: 'var(--editor-heading-color, #a78bfa)', fontWeight: '600', fontSize: '1.4em' },
+  { tag: tags.heading3, color: 'var(--editor-heading-color, #8b5cf6)', fontWeight: '600', fontSize: '1.2em' },
+  { tag: tags.heading4, color: 'var(--editor-heading-color, #7c3aed)', fontWeight: '500' },
+  { tag: tags.heading5, color: 'var(--editor-heading-color, #6d28d9)', fontWeight: '500' },
+  { tag: tags.heading6, color: 'var(--editor-heading-color, #5b21b6)', fontWeight: '500' },
 
   // Emphasis
   { tag: tags.emphasis, color: '#e879f9', fontStyle: 'italic' },
@@ -145,7 +146,7 @@ const noteDeskHighlighting = HighlightStyle.define([
 
   // Meta / special Markdown chars (##, **, etc.)
   { tag: tags.meta, color: '#6b7280' },
-  { tag: tags.processingInstruction, color: '#6b7280' },
+  { tag: tags.processingInstruction, color: 'var(--editor-mark-color, #34d399)' },
 
   // Comments
   { tag: tags.comment, color: '#4b5563', fontStyle: 'italic' },
@@ -572,7 +573,7 @@ export function createEditor(parentElement, { onChange, getNoteNames, onCreateNo
       // Theming
       oneDark,
       noteDeskTheme,
-      syntaxHighlighting(noteDeskHighlighting),
+      Prec.highest(syntaxHighlighting(noteDeskHighlighting)),
 
       // Change listener
       updateListener,

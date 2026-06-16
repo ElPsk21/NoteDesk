@@ -567,3 +567,26 @@ ipcMain.handle('get-backlinks', async (event, filePath) => {
   
   return scanBacklinksRecursively(vaultPath, targetNoteName, filePath);
 });
+
+// --- Settings Persistence ---
+ipcMain.handle('get-settings', async () => {
+  return {
+    theme: config.theme || 'dark',
+    editorFont: config.editorFont || 'Fira Code',
+    uiFont: config.uiFont || 'Inter',
+    highlightColor: config.highlightColor || 'purple',
+    editorTextColor: config.editorTextColor || 'default',
+    editorMarkColor: config.editorMarkColor || 'default',
+  };
+});
+
+ipcMain.handle('save-settings', async (event, settings) => {
+  if (settings.theme) config.theme = settings.theme;
+  if (settings.editorFont) config.editorFont = settings.editorFont;
+  if (settings.uiFont) config.uiFont = settings.uiFont;
+  if (settings.highlightColor) config.highlightColor = settings.highlightColor;
+  if (settings.editorTextColor) config.editorTextColor = settings.editorTextColor;
+  if (settings.editorMarkColor) config.editorMarkColor = settings.editorMarkColor;
+  saveConfig(config);
+  return true;
+});
